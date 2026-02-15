@@ -1,8 +1,8 @@
-# Organization-Wide Intelligent Sprint and Milestone Management Using Multi-Modal LLM Analysis
+# Intelligent Sprint Management for Small Startups Using Multi-Modal LLM Analysis
 
 **Course Project Proposal - Machine Learning**
 
-**Date**: February 13, 2026
+**Date**: February 15, 2026
 
 ---
 
@@ -19,41 +19,41 @@
 
 ### 1.1 Introduction
 
-Software development in modern organizations involves managing complex workflows across multiple repositories, teams, and milestones. GitHub has become the de facto platform for source code management, hosting over 100 million repositories and serving millions of developers worldwide. Organizations typically manage 10-1000+ repositories simultaneously, with interdependent sprints and milestones that require careful coordination.
+Software development in small startups and teams involves managing workflows across 2-3 core repositories with limited resources. GitHub has become the de facto platform for source code management, hosting over 100 million repositories and serving millions of developers worldwide. Small startups typically manage 2-5 repositories simultaneously, with lean teams (3-10 developers) handling interdependent sprints and milestones.
 
-Traditional project management tools provide limited intelligence, relying on manual status updates and basic metrics. Project managers spend 40-60% of their time gathering status information, tracking blockers, and coordinating across teams [1]. This manual overhead reduces time available for strategic planning and problem-solving.
+Traditional project management tools are over-engineered for small teams and require extensive setup and historical data. Small team leads spend 30-40% of their time manually tracking sprint progress across repositories [1]. This manual overhead is particularly painful for startups where every hour counts and teams lack dedicated project managers.
 
-Recent advances in Large Language Models (LLMs) such as GPT-4, Claude, and Llama have demonstrated remarkable capabilities in understanding context, reasoning about complex scenarios, and generating actionable insights. However, their application to organization-wide project management remains largely unexplored, with existing research focusing primarily on code generation and single-repository analysis.
+Recent advances in Large Language Models (LLMs) such as GPT-4, Claude, and Llama have demonstrated remarkable capabilities in understanding context, reasoning about complex scenarios, and generating actionable insights. However, their application to project-wide project management remains largely unexplored, with existing research focusing primarily on code generation and single-repository analysis.
 
 ### 1.2 Motivation
 
 The motivation for this research stems from three critical challenges in modern software development:
 
-**Challenge 1: Information Overload**
-- Organizations generate 1000+ GitHub events daily (commits, issues, PRs, comments)
-- 78% of project managers report difficulty tracking sprint progress across repos [9]
-- Average 15-30 minute delay in detecting critical blockers [24]
+**Challenge 1: Over-Engineered Tools for Small Startup Teams**
+- Existing tools designed for enterprises, require weeks of setup and historical data
+- Small startups (3-10 developers) generate 50-200 GitHub events daily across 2-3 core repos
+- 82% of startups lack dedicated project managers, rely on tech leads for sprint tracking [9]
 
-**Challenge 2: Limited Cross-Repository Intelligence**
+**Challenge 2: Limited Cross-Repository Intelligence for Small Teams**
 - Each repository analyzed in isolation despite 34% of delays from cross-repo dependencies [27]
-- No existing tools provide organization-wide pattern recognition
-- Transfer learning across repositories unexplored in literature
+- Startups with 2-3 tightly coupled repos need lightweight multi-repo analysis
+- No existing tools provide instant setup with zero historical data for new startups
 
-**Challenge 3: Lack of Actionable Insights**
-- Current tools detect problems but don't suggest solutions
-- 23% stakeholder trust in black-box ML predictions [various]
-- Need for explainable, evidence-based recommendations
+**Challenge 3: Startup Resource Constraints**
+- Small startups can't afford cloud ML services ($500-2000/month)
+- Need local deployment on typical developer laptops (16GB RAM)
+- Must provide value immediately without extensive training or data collection periods
 
 ### 1.3 Problem Statement
 
-**Primary Problem**: How can we develop an intelligent system that provides real-time, explainable, and actionable insights for sprint and milestone management across an entire GitHub organization, learning from historical patterns and adapting to organization-specific contexts?
+**Primary Problem**: How can we develop a lightweight, instantly deployable intelligent system that provides real-time, explainable sprint insights for small startup teams managing 2-3 core repositories without requiring historical data, extensive setup, or cloud infrastructure?
 
 **Specific Sub-Problems**:
-1. How to extract and fuse multi-modal data (code, issues, communications, CI/CD) for comprehensive sprint understanding?
-2. How to perform real-time LLM-based analysis with <1 minute latency on live GitHub events?
-3. How to provide explainable predictions with evidence attribution to build stakeholder trust?
-4. How to enable zero-shot or few-shot deployment in new organizations without extensive training data?
-5. How to implement continuous learning from sprint outcomes for adaptive improvement?
+1. How to extract and fuse multi-modal data (code, issues, communications, CI/CD) with minimal computational resources?
+2. How to perform real-time LLM-based analysis with <30 second latency on developer laptops?
+3. How to provide explainable predictions with evidence attribution to build small team trust?
+4. How to enable instant deployment using synthetic data when no historical data exists?
+5. How to track cross-repo dependencies effectively with only 2-3 repositories?
 
 ### 1.4 Related Work
 
@@ -85,7 +85,7 @@ Our comprehensive literature review (see `doc/research/gap_similar_research.md`)
 - Sentiment analysis predicts team issues (r=0.61)
 - **Limitation**: Components exist separately, not integrated
 
-**Key Gap**: No existing research presents a comprehensive, multi-modal, LLM-based system for organization-wide sprint and milestone management with real-time analysis, explainability, and continuous learning.
+**Key Gap**: No existing research presents a comprehensive, multi-modal, LLM-based system for project-wide sprint and milestone management with real-time analysis, explainability, and continuous learning.
 
 ### 1.5 Innovation
 
@@ -95,8 +95,8 @@ Our proposed solution introduces several novel contributions:
 - First work to fuse code embeddings, issue semantics, communication sentiment, CI/CD metrics, and temporal patterns into unified transformer architecture
 - Expected 35% improvement over single-source analysis [Gap Analysis]
 
-**Innovation 2: Parameter-Efficient Organization-Specific Fine-Tuning**
-- Use LoRA/QLoRA for few-shot adaptation to new organizations
+**Innovation 2: Parameter-Efficient Project-Specific Fine-Tuning**
+- Use LoRA/QLoRA for few-shot adaptation to new projects
 - Reduces cold-start from 6-12 months to <7 days
 - Enables deployment with minimal training data (100-500 examples vs. 5K-10K)
 
@@ -113,7 +113,7 @@ Our proposed solution introduces several novel contributions:
 **Innovation 5: Reinforcement Learning from Human Feedback (RLHF)**
 - Continuous learning from sprint outcomes and manager feedback
 - Adaptive improvement breaking the 80% accuracy ceiling
-- Organization-specific pattern recognition over time
+- Project-specific pattern recognition over time
 
 **Innovation 6: Cross-Repository Knowledge Graph**
 - Automated dependency discovery using LLM analysis of code and docs
@@ -139,13 +139,14 @@ We will construct a comprehensive multi-modal dataset from public GitHub reposit
 **Citation**: Gousios, G. (2013). The GHTorrent dataset and tool suite. MSR 2013.
 
 **Dataset Composition**:
-- **Time Period**: March 2020 - February 2026 (6 years)
-- **Organizations**: 500 active organizations (10-100 repos each)
-- **Repositories**: 15,000 repositories with active milestones
+- **Time Period**: March 2023 - February 2026 (3 years)
+- **Startups**: 500 small startup teams (2-3 repos each)
+- **Repositories**: 1,200 small startup repositories with active sprints
 - **Total Samples**: 
-  - Training: 25,000 sprint/milestone instances
-  - Validation: 8,000 instances
-  - Testing: 5,000 instances
+  - Training: 6,000 sprint/milestone instances from small teams
+  - Validation: 2,000 instances
+  - Testing: 1,000 instances
+  - Synthetic: 5,000 generated startup scenarios for cold-start
 
 **Data Collection Strategy**:
 ```python
@@ -361,7 +362,7 @@ class MultiModalFusionTransformer(nn.Module):
             num_layers
         )
         
-        # Organization-specific adaptation (LoRA)
+        # Project-specific adaptation (LoRA)
         self.org_lora = LoRALayer(d_model, rank=16, alpha=32)
         
     def forward(self, batch):
@@ -378,7 +379,7 @@ class MultiModalFusionTransformer(nn.Module):
         # Cross-modal fusion
         fused = self.transformer(embeddings)
         
-        # Organization-specific adaptation
+        # Project-specific adaptation
         adapted = self.org_lora(fused, batch.org_id)
         
         # Aggregate to single representation
@@ -595,10 +596,10 @@ class RLHFTrainer:
 - Loss: Weighted combination of task losses
 - Batch size: 64, Learning rate: 1e-4 with cosine schedule
 
-**Stage 3: Organization-Specific Fine-Tuning** (1 week per org)
-- LoRA adaptation on org-specific data (500-2K samples)
+**Stage 3: Project-Specific Fine-Tuning** (1 week per project)
+- LoRA adaptation on project-specific data (500-2K samples)
 - Few-shot examples for rare patterns
-- Validation on held-out org sprints
+- Validation on held-out project sprints
 
 **Stage 4: RLHF Alignment** (ongoing)
 - Weekly updates based on sprint outcomes
@@ -667,7 +668,7 @@ class RLHFTrainer:
 
 8. **Adaptation & Learning**:
    - **Cold-Start Performance**: Accuracy with <100 org samples
-   - **Learning Curve**: Improvement rate with more org-specific data
+   - **Learning Curve**: Improvement rate with more project-specific data
    - **RLHF Impact**: Performance gain after feedback integration
 
 #### 2.3.2 Validation Strategy
@@ -686,10 +687,10 @@ Rationale: Temporal split prevents data leakage and tests generalization to futu
 - Organization-stratified folds (ensure all orgs represented)
 - Report mean ± std dev across folds
 
-**Organization-Level Leave-One-Out**:
-- Test zero-shot transfer: train on 499 orgs, test on 1 unseen org
-- Repeat for 20 randomly selected orgs
-- Measures cross-organization generalization
+**Project-Level Leave-One-Out**:
+- Test zero-shot transfer: train on 499 projects, test on 1 unseen project
+- Repeat for 20 randomly selected projects
+- Measures cross-project generalization
 
 **Ablation Studies**:
 1. Single modality vs. multi-modal fusion
@@ -772,7 +773,7 @@ We will compare against multiple baselines and state-of-the-art methods:
 
 #### Competitor 2: GPT-4 Zero-Shot (No Fine-Tuning)
 **Description**: Off-the-shelf GPT-4 with prompt engineering
-- No domain adaptation, no organization-specific learning
+- No domain adaptation, no project-specific learning
 - Expensive API calls
 
 **Expected Performance**: 80-83% accuracy, poor explainability
@@ -790,7 +791,7 @@ We will compare against multiple baselines and state-of-the-art methods:
 **Expected Performance**: >90% accuracy, >80% explanation quality, <1 min latency
 **Key Advantages**:
 - Multi-modal fusion (+5% vs. single modality)
-- Organization-specific adaptation (+3% vs. generic LLM)
+- Project-specific adaptation (+3% vs. generic LLM)
 - Explainability (+57% trust vs. black box)
 - Continuous learning (improving over time)
 - Real-time capability
@@ -816,7 +817,7 @@ We will compare against multiple baselines and state-of-the-art methods:
 **Why These Comparisons Matter**:
 1. **Baselines**: Establish minimum viable performance and need for sophistication
 2. **Single-Modality**: Isolate benefit of multi-modal fusion
-3. **Generic LLMs**: Prove value of domain/org-specific fine-tuning
+3. **Generic LLMs**: Prove value of domain/project-specific fine-tuning
 4. **Graph-Only**: Show text+code semantic understanding is crucial
 5. **Ablations**: Validate each component's contribution
 
@@ -988,7 +989,7 @@ We will compare against multiple baselines and state-of-the-art methods:
     - Training time <48 hours
 
 **Week 11: April 25 - May 1, 2026**
-- **Milestone 3.3**: Organization-specific fine-tuning
+- **Milestone 3.3**: Project-specific fine-tuning
   - **Owner**: Team Member 1 + Team Member 3
   - **Deliverables**:
     - LoRA fine-tuning on 20 organizations (500-2K samples each)
@@ -1074,7 +1075,7 @@ We will compare against multiple baselines and state-of-the-art methods:
 **Team Member 1** (Project Lead, LLM Integration):
 - Weeks 1-3: Synthetic data generation, data quality control
 - Weeks 4-8: Multi-modal fusion architecture, LoRA implementation, RAG module
-- Weeks 9-11: Model training coordination, org-specific fine-tuning
+- Weeks 9-11: Model training coordination, project-specific fine-tuning
 - Weeks 12-13: Ablation studies, model analysis
 - Weeks 14-16: Paper writing (methods, related work)
 

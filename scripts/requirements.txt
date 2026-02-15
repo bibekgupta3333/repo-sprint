@@ -1,0 +1,40 @@
+# Data Collection and Processing Requirements
+
+# GitHub API
+PyGithub==2.1.1
+requests==2.31.0
+
+# Data Processing
+pandas==2.1.4
+pyarrow==14.0.2
+numpy==1.26.3
+
+# Database
+psycopg2-binary==2.9.9
+sqlalchemy==2.0.25
+sqlite3  # Built-in
+
+# Vector Store
+chromadb==0.4.22
+
+# LLM & Embeddings
+sentence-transformers==2.3.1
+transformers==4.37.2
+torch==2.1.2
+
+# Utilities
+python-dotenv==1.0.0
+tqdm==4.66.1
+click==8.1.7
+pyyaml==6.0.1
+jsonlines==4.0.0
+
+# Date/Time
+python-dateutil==2.8.2
+pytz==2023.3
+
+# Compression
+zstd==1.5.5.1
+
+# Logging
+loguru==0.7.2

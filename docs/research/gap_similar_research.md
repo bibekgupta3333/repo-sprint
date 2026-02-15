@@ -778,14 +778,14 @@ This document presents a comprehensive analysis of 50 research papers related to
 
 ### Critical Research Gaps Identified
 
-#### Gap 1: Lack of Organization-Level LLM Intelligence
+#### Gap 1: Lack of Project-Level LLM Intelligence
 **Current Limitation**: Existing solutions operate at repository level without cross-repository learning.
 - Papers 1-50 focus on single repository or project analysis
-- No research on organization-wide pattern recognition using LLMs
+- No research on project-wide pattern recognition using LLMs
 - Missing: Federated learning across multiple repositories
 - **Impact**: 40-60% accuracy loss when applying models across repositories
 
-**Novel Opportunity**: Develop multi-repository LLM fine-tuning with organization-specific context retention, enabling transfer learning across all org repositories.
+**Novel Opportunity**: Develop multi-repository LLM fine-tuning with project-specific context retention, enabling transfer learning across all org repositories.
 
 #### Gap 2: Real-Time Context-Aware Sprint Monitoring
 **Current Limitation**: Existing systems perform batch analysis, missing critical real-time insights.
@@ -817,7 +817,7 @@ This document presents a comprehensive analysis of 50 research papers related to
 #### Gap 5: Adaptive Learning from Sprint Outcomes
 **Current Limitation**: Static models that don't improve from organizational experience.
 - Papers 18, 46 mention cross-project learning but don't implement feedback loops
-- Models don't adapt to organization-specific patterns
+- Models don't adapt to project-specific patterns
 - Missing: Reinforcement learning from sprint success/failure outcomes
 - **Impact**: Models stagnate at 75-80% accuracy ceiling
 
@@ -870,7 +870,7 @@ This document presents a comprehensive analysis of 50 research papers related to
 
 | Research Area | Papers Addressing | Gap Severity | Potential Impact | Novel Contribution Potential |
 |---------------|-------------------|--------------|------------------|------------------------------|
-| Org-level LLM Intelligence | 0/50 | **Critical** | 40-60% accuracy gain | **Very High** |
+| Project-level LLM Intelligence | 0/50 | **Critical** | 40-60% accuracy gain | **Very High** |
 | Real-time LLM Monitoring | 1/50 (partial) | **Critical** | 62% faster risk detection | **Very High** |
 | Multi-modal Data Fusion | 2/50 (partial) | **High** | 35% prediction improvement | **High** |
 | Explainable AI | 0/50 | **High** | 4x adoption increase | **Very High** |
@@ -883,7 +883,7 @@ This document presents a comprehensive analysis of 50 research papers related to
 
 ### Opportunities for Innovation
 
-1. **Organization-Level Intelligence**: Build systems that learn patterns across all repositories in an organization using federated learning and organization-specific LLM fine-tuning.
+1. **Project-Level Intelligence**: Build systems that learn patterns across all repositories in a project using federated learning and project-specific LLM fine-tuning.
 
 2. **Unified Multi-Modal LLM Platform**: Integrate code, text, temporal, and sentiment data into unified transformer architecture for comprehensive sprint/milestone management.
 
@@ -899,28 +899,28 @@ This document presents a comprehensive analysis of 50 research papers related to
 
 8. **Hybrid Intelligence Framework**: Optimal combination of AI automation (data processing, pattern recognition) with human expertise (strategic decisions, edge cases).
 
-9. **Parameter-Efficient Adaptation**: Use LoRA/QLoRA for fast organization-specific fine-tuning with minimal computational resources.
+9. **Parameter-Efficient Adaptation**: Use LoRA/QLoRA for fast project-specific fine-tuning with minimal computational resources.
 
 10. **Synthetic Data Augmentation**: Generate realistic sprint scenarios for robust model training, especially for rare but critical situations.
 
 ### Problem Definition for Novel Research
 
 **Core Problem**: Current sprint and milestone management tools lack intelligence to:
-1. Understand organization-specific patterns across multiple repositories
+1. Understand project-specific patterns across multiple repositories
 2. Provide real-time, explainable insights on sprint health
 3. Proactively recommend interventions before failures occur
 4. Adapt and improve from organizational experience
 5. Handle cross-repository dependencies and coordination
 
-**Research Question**: Can a multi-modal LLM-based system with parameter-efficient fine-tuning, real-time analysis, and explainable AI provide actionable, organization-wide sprint and milestone intelligence that outperforms existing approaches?
+**Research Question**: Can a multi-modal LLM-based system with parameter-efficient fine-tuning, real-time analysis, and explainable AI provide actionable, project-wide sprint and milestone intelligence that outperforms existing approaches?
 
 **Success Criteria**:
 - **Accuracy**: >90% sprint success prediction (vs. current 75-87%)
-- **Speed**: <1 minute real-time risk detection (vs. current 15-30 min)
+- **Speed**: <30 seconds real-time analysis (optimized for laptop deployment)
 - **Explainability**: >80% stakeholder trust in recommendations (vs. current 23%)
-- **Adaptability**: Continuous improvement from feedback (vs. static models)
-- **Scalability**: Handle 100+ repositories simultaneously
-- **Cold-start**: <7 days to deployment in new organizations (vs. 6-12 months)
+- **Adaptability**: Cold-start friendly (works without historical data)
+- **Scalability**: Handle 2-3 repositories efficiently (small startup scale)
+- **Setup**: <10 minutes to deployment (instant Docker Compose setup)
 
 ## Proposed Solution: LLM-Based GitHub Sprint/Milestone Checker
 
@@ -930,7 +930,7 @@ This document presents a comprehensive analysis of 50 research papers related to
 
 2. **LLM-Powered Understanding**: Use GPT-4/Claude for understanding project context, goals, and progress
 
-3. **Multi-Repository Coordination**: Organization-level view across all repositories
+3. **Multi-Repository Coordination**: Project-level view across all repositories
 
 4. **Real-Time Monitoring**: Webhook-based real-time tracking with anomaly detection
 
@@ -960,7 +960,7 @@ This document presents a comprehensive analysis of 50 research papers related to
 
 ## Conclusion
 
-This comprehensive review of 50 research papers reveals significant opportunities for innovation in LLM-based GitHub sprint/milestone checking. While individual components have been researched extensively, a comprehensive, organization-level system leveraging modern LLMs represents a clear gap in the literature. The proposed solution addresses this gap by integrating multiple research streams into a unified, practical tool.
+This comprehensive review of 50 research papers reveals significant opportunities for innovation in LLM-based GitHub sprint/milestone checking. While individual components have been researched extensively, a comprehensive, project-level system leveraging modern LLMs represents a clear gap in the literature. The proposed solution addresses this gap by integrating multiple research streams into a unified, practical tool.
 
 ## References
 

@@ -1,0 +1,89 @@
+# EditorConfig - Unified Code Style Configuration
+# https://editorconfig.org/
+
+root = true
+
+# =================================
+# All Files
+# =================================
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+# =================================
+# Python Files
+# =================================
+[*.py]
+indent_size = 4
+max_line_length = 100
+quote_type = double
+
+# =================================
+# JavaScript/TypeScript
+# =================================
+[*.{js,jsx,ts,tsx}]
+indent_size = 2
+max_line_length = 100
+
+# =================================
+# JSON
+# =================================
+[*.json]
+indent_size = 2
+
+# =================================
+# YAML
+# =================================
+[*.{yml,yaml}]
+indent_size = 2
+
+# =================================
+# Markdown
+# =================================
+[*.md]
+trim_trailing_whitespace = false
+max_line_length = off
+
+# =================================
+# Shell Scripts
+# =================================
+[*.{sh,bash}]
+indent_size = 2
+
+# =================================
+# Makefiles
+# =================================
+[Makefile]
+indent_style = tab
+
+# =================================
+# Docker
+# =================================
+[Dockerfile]
+indent_size = 2
+
+[docker-compose*.yml]
+indent_size = 2
+
+# =================================
+# SQL
+# =================================
+[*.sql]
+indent_size = 2
+max_line_length = 120
+
+# =================================
+# HTML/CSS
+# =================================
+[*.{html,css,scss}]
+indent_size = 2
+
+# =================================
+# Config Files
+# =================================
+[*.{toml,ini,cfg}]
+indent_size = 2

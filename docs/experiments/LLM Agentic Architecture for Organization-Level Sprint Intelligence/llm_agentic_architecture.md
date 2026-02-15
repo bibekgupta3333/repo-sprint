@@ -1,9 +1,9 @@
-# LLM Agentic Architecture for Organization-Level Sprint Intelligence
+# LLM Agentic Architecture for Small Startup Sprint Intelligence
 
-**Project**: Organization-Wide Intelligent Sprint and Milestone Management  
-**Focus**: Gap 1 - Organization-Level LLM Intelligence  
+**Project**: Sprint Intelligence for Small Startup Teams  
+**Focus**: Lightweight System for 2-3 Repository Management  
 **Hardware Constraints**: MacBook M4 Pro, 24GB RAM  
-**Date**: February 13, 2026
+**Date**: February 15, 2026
 
 ---
 
@@ -26,20 +26,20 @@
 
 ## Executive Summary
 
-This document outlines a **lightweight, achievable LLM agentic system** designed to run on a MacBook M4 Pro (24GB RAM) for organization-level GitHub sprint intelligence. The architecture leverages:
+This document outlines a **lightweight, achievable LLM agentic system** designed to run on a MacBook M4 Pro (24GB RAM) for small startup sprint intelligence across 2-3 core repositories. The architecture leverages:
 
 - **Quantized LLMs** (Llama-3-8B-Q4 instead of 70B) for local inference
 - **Multi-agent system** with specialized agents for data collection, analysis, and recommendations
-- **Incremental learning** with LoRA adapters (<500MB per organization)
+- **Incremental learning** with LoRA adapters (<500MB per startup)
 - **Efficient vector storage** using ChromaDB (runs locally)
-- **Batch processing** to manage memory constraints
+- **Batch processing** to manage memory constraints for small team workloads
 
 **Key Achievability Factors**:
 - ✅ Uses smaller quantized models (8B params, ~5GB RAM)
 - ✅ Agents run sequentially (not parallel) to conserve memory
-- ✅ Processes repositories incrementally
+- ✅ Processes 2-3 repositories incrementally for startups
 - ✅ Stores embeddings efficiently with compression
-- ✅ Realistic GitHub API usage (5000 req/hr limit)
+- ✅ Realistic GitHub API usage (5000 req/hr limit for small teams)
 
 ---
 
@@ -74,7 +74,7 @@ graph TB
         VDB[(ChromaDB<br/>Vector Store<br/>~2GB)]
         EMB[Embedding Agent<br/>Sentence-BERT]
         LLM[LLM Reasoning Agent<br/>Llama-3-8B-Q4<br/>~5GB RAM]
-        LORA[LoRA Adapter<br/>Org-Specific<br/>~200MB]
+        LORA[LoRA Adapter<br/>Project-Specific<br/>~200MB]
     end
     
     subgraph "Analysis & Recommendation Layer"
@@ -156,6 +156,7 @@ erDiagram
         string github_url
         timestamp created_at
         json settings
+        int repo_count "2-3 repos typical"
     }
     
     REPOSITORY ||--o{ MILESTONE : has
@@ -550,7 +551,7 @@ graph TB
     
     subgraph "LLM Backend"
         LLM1[Llama-3-8B-Instruct-Q4<br/>Local Inference]
-        LLM2[LoRA Adapters<br/>Org-Specific Fine-tuning]
+        LLM2[LoRA Adapters<br/>Project-Specific Fine-tuning]
     end
     
     ORCH --> A1
@@ -1018,7 +1019,7 @@ def compute_features(milestone_id):
 
 ### Achievable GitHub API Metrics (No Premium Required)
 
-#### Organization-Level Metrics
+#### Project-Level Metrics
 
 | Metric | API Endpoint | Rate Limit Impact | Feasibility | Value |
 |--------|--------------|-------------------|-------------|-------|

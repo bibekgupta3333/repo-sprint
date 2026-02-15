@@ -1,6 +1,6 @@
-# Visual Architecture Overview
+# Visual Architecture Overview for Small Startup Sprint Intelligence
 
-This document contains high-level visual diagrams for quick understanding of the system architecture.
+This document contains high-level visual diagrams for quick understanding of the system architecture designed for small startup teams managing 2-3 GitHub repositories.
 
 ## System Overview: Input → Process → Output
 
@@ -309,7 +309,7 @@ graph TB
 graph TB
     START[Start Analysis]
     
-    subgraph ORG_LEVEL["Organization Level (1 API call)"]
+    subgraph ORG_LEVEL["Project Level (1 API call)"]
         O1[GET /orgs/{org}<br/>Basic info]
         O2[GET /orgs/{org}/repos<br/>Repository list]
     end
@@ -512,7 +512,7 @@ gantt
 - 50+ derived metrics
 
 ### 🚀 Novel Contributions
-- Organization-level intelligence
+- Project-level intelligence
 - Multi-modal LLM fusion
 - RAG-based explainability
 - LoRA fast adaptation

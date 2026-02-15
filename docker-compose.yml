@@ -1,0 +1,243 @@
+version: '3.8'
+
+services:
+  # =================================
+  # Frontend - Streamlit Application
+  # =================================
+  streamlit-app:
+    build:
+      context: ./apps/frontend
+      dockerfile: Dockerfile
+    container_name: streamlit-app
+    ports:
+      - "8501:8501"
+    environment:
+      - BACKEND_URL=http://fastapi-backend:8000
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      - ./apps/frontend:/app
+    depends_on:
+      - fastapi-backend
+    restart: unless-stopped
+    networks:
+      - sprint_intelligence
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+
+  # =================================
+  # Backend - FastAPI Application
+  # =================================
+  fastapi-backend:
+    build:
+      context: ./apps/backend
+      dockerfile: Dockerfile
+    container_name: fastapi-backend
+    ports:
+      - "8000:8000"
+    environment:
+      # GitHub
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - GITHUB_ORG=${GITHUB_ORG}
+      - GITHUB_REPOS=${GITHUB_REPOS:-}
+      - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET}
+
+      # Database
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres-db:5432/${POSTGRES_DB}
+      - POSTGRES_HOST=postgres-db
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+
+      # ChromaDB
+      - CHROMA_HOST=chromadb
+      - CHROMA_PORT=8000
+      - CHROMA_BASE_URL=http://chromadb:8000
+
+      # Redis
+      - REDIS_HOST=redis-cache
+      - REDIS_PORT=6379
+      - REDIS_URL=redis://redis-cache:6379/0
+
+      # Ollama
+      - OLLAMA_BASE_URL=http://ollama-server:11434
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3:8b-q4}
+
+      # Embedding
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-sentence-transformers/all-MiniLM-L6-v2}
+      - EMBEDDING_DIMENSION=384
+
+      # API Config
+      - API_SECRET_KEY=${API_SECRET_KEY}
+      - API_ALGORITHM=HS256
+      - ACCESS_TOKEN_EXPIRE_MINUTES=1440
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:8501}
+
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_FORMAT=json
+
+      # Feature Flags
+      - ENABLE_SYNTHETIC_DATA=${ENABLE_SYNTHETIC_DATA:-true}
+      - ENABLE_REAL_TIME_ANALYSIS=${ENABLE_REAL_TIME_ANALYSIS:-true}
+
+    volumes:
+      - ./apps/backend:/app
+      - ./data:/data
+      - ./logs:/logs
+    depends_on:
+      - postgres-db
+      - chromadb
+      - redis-cache
+      - ollama-server
+    restart: unless-stopped
+    networks:
+      - sprint_intelligence
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+
+  # =================================
+  # PostgreSQL Database
+  # =================================
+  postgres-db:
+    image: postgres:15-alpine
+    container_name: postgres-db
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres123}
+      - POSTGRES_DB=${POSTGRES_DB:-sprint_intelligence}
+      - POSTGRES_INITDB_ARGS=--encoding=UTF-8 --lc-collate=C --lc-ctype=C
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init_db.sql:/docker-entrypoint-initdb.d/init.sql
+    restart: unless-stopped
+    networks:
+      - sprint_intelligence
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+
+  # =================================
+  # ChromaDB - Vector Store
+  # =================================
+  chromadb:
+    image: ghcr.io/chroma-core/chroma:latest
+    container_name: chromadb
+    ports:
+      - "8001:8000"
+    environment:
+      - CHROMA_SERVER_AUTH_CREDENTIALS_PROVIDER=chromadb.auth.token.TokenConfigServerAuthCredentialsProvider
+      - CHROMA_SERVER_AUTH_CREDENTIALS=test-token
+      - CHROMA_SERVER_AUTH_PROVIDER=chromadb.auth.token.TokenAuthServerProvider
+      - ANONYMIZED_TELEMETRY=False
+    volumes:
+      - chroma_data:/chroma/chroma
+    restart: unless-stopped
+    networks:
+      - sprint_intelligence
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 2G
+
+  # =================================
+  # Redis - Cache & Queue
+  # =================================
+  redis-cache:
+    image: redis:7-alpine
+    container_name: redis-cache
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --maxmemory 500mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    networks:
+      - sprint_intelligence
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 500M
+
+  # =================================
+  # Ollama - LLM Server
+  # =================================
+  ollama-server:
+    image: ollama/ollama:latest
+    container_name: ollama-server
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    restart: unless-stopped
+    networks:
+      - sprint_intelligence
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 6G
+    # For Apple Silicon (M1/M2/M3/M4)
+    # environment:
+    #   - OLLAMA_NUM_GPU=1
+
+# =================================
+# Networks
+# =================================
+networks:
+  sprint_intelligence:
+    driver: bridge
+    name: sprint_intelligence_network
+
+# =================================
+# Volumes (Persistent Storage)
+# =================================
+volumes:
+  postgres_data:
+    driver: local
+    name: sprint_intelligence_postgres
+
+  chroma_data:
+    driver: local
+    name: sprint_intelligence_chroma
+
+  redis_data:
+    driver: local
+    name: sprint_intelligence_redis
+
+  ollama_models:
+    driver: local
+    name: sprint_intelligence_ollama

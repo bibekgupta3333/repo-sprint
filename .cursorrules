@@ -1,0 +1,471 @@
+# Cursor AI Rules for LLM Agentic Sprint Intelligence Platform
+
+## Project Overview
+This is a research project building an LLM-based sprint intelligence system for GitHub organizations.
+
+**Tech Stack**:
+- Backend: FastAPI, LangGraph, PostgreSQL, ChromaDB, Redis, Ollama (Llama-3-8B)
+- Frontend: Streamlit
+- Deployment: Docker Compose
+- Language: Python 3.11+
+
+**Target**: 2-3 GitHub repositories for small startups
+
+---
+
+## Code Generation Guidelines
+
+### Python Code Standards
+
+1. **Type Hints**: Always use type hints
+   ```python
+   def analyze_milestone(milestone_id: str, repo: str) -> AnalysisResult:
+       ...
+   ```
+
+2. **Docstrings**: Google-style docstrings for all functions/classes
+   ```python
+   def compute_health_score(milestone: Milestone) -> float:
+       """Computes the health score for a milestone.
+
+       Args:
+           milestone: Milestone object with metrics
+
+       Returns:
+           Health score between 0-100
+
+       Raises:
+           ValueError: If milestone has no issues
+       """
+   ```
+
+3. **Async/Await**: Use async for I/O-bound operations
+   ```python
+   async def fetch_github_data(repo: str) -> Dict:
+       async with httpx.AsyncClient() as client:
+           response = await client.get(f"https://api.github.com/repos/{repo}")
+           return response.json()
+   ```
+
+4. **Error Handling**: Always handle errors gracefully
+   ```python
+   try:
+       result = await llm_service.generate(prompt)
+   except OllamaError as e:
+       logger.error(f"LLM generation failed: {e}")
+       raise HTTPException(status_code=500, detail="LLM service unavailable")
+   ```
+
+5. **Logging**: Use structured logging
+   ```python
+   import structlog
+   logger = structlog.get_logger()
+
+   logger.info(
+       "milestone_analyzed",
+       milestone_id=milestone.id,
+       repo=milestone.repo.full_name,
+       health_score=result.health_score
+   )
+   ```
+
+### File Organization
+
+**Backend Structure**:
+```
+apps/backend/
+├── api/
+│   └── routes/
+│       ├── __init__.py
+│       ├── organizations.py    # /api/v1/organizations/*
+│       ├── milestones.py       # /api/v1/milestones/*
+│       └── analysis.py         # /api/v1/analysis/*
+├── services/
+│   ├── github/
+│   ├── agents/
+│   ├── rag/
+│   └── llm/
+├── models/                     # SQLAlchemy ORM models
+├── schemas/                    # Pydantic schemas
+├── core/                       # Config, DB, auth
+└── tests/
+```
+
+**Frontend Structure**:
+```
+apps/frontend/
+├── app.py                      # Main entry
+├── pages/
+│   ├── 1_📊_Dashboard.py
+│   ├── 2_🎯_Milestone_Analysis.py
+│   └── ...
+├── components/
+│   ├── charts.py
+│   └── tables.py
+└── utils/
+    └── api_client.py
+```
+
+### Naming Conventions
+
+- **Files**: `snake_case.py`
+- **Classes**: `PascalCase`
+- **Functions/Variables**: `snake_case`
+- **Constants**: `UPPER_SNAKE_CASE`
+- **Private**: `_leading_underscore`
+
+### FastAPI Best Practices
+
+1. **Route Organization**: Group by resource
+   ```python
+   router = APIRouter(prefix="/api/v1/milestones", tags=["milestones"])
+
+   @router.get("/{milestone_id}")
+   async def get_milestone(milestone_id: str, db: Session = Depends(get_db)):
+       ...
+   ```
+
+2. **Dependency Injection**: Use FastAPI dependencies
+   ```python
+   async def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
+       ...
+
+   @router.get("/me")
+   async def read_users_me(current_user: User = Depends(get_current_user)):
+       return current_user
+   ```
+
+3. **Pydantic Models**: Separate request/response schemas
+   ```python
+   class MilestoneCreate(BaseModel):
+       title: str
+       due_date: date
+
+   class MilestoneResponse(BaseModel):
+       id: UUID
+       title: str
+       due_date: date
+       created_at: datetime
+
+       class Config:
+           from_attributes = True
+   ```
+
+### LangGraph Agent Patterns
+
+1. **State Definition**:
+   ```python
+   from typing import TypedDict
+   from langgraph.graph import StateGraph
+
+   class AnalysisState(TypedDict):
+       milestone_id: str
+       features: Dict
+       llm_insights: Dict
+       risks: List[Risk]
+       recommendations: List[Recommendation]
+   ```
+
+2. **Agent Nodes**:
+   ```python
+   def feature_engineer_node(state: AnalysisState) -> AnalysisState:
+       features = compute_features(state["milestone_id"])
+       return {**state, "features": features}
+   ```
+
+3. **Workflow**:
+   ```python
+   workflow = StateGraph(AnalysisState)
+   workflow.add_node("feature_engineer", feature_engineer_node)
+   workflow.add_node("llm_reasoner", llm_reasoner_node)
+   workflow.add_edge("feature_engineer", "llm_reasoner")
+   graph = workflow.compile()
+   ```
+
+### Database Best Practices
+
+1. **SQLAlchemy Models**:
+   ```python
+   class Milestone(Base):
+       __tablename__ = "milestones"
+
+       id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+       repo_id = Column(UUID(as_uuid=True), ForeignKey("repositories.id"))
+       title = Column(String(255), nullable=False)
+
+       # Relationships
+       repository = relationship("Repository", back_populates="milestones")
+       issues = relationship("Issue", back_populates="milestone")
+   ```
+
+2. **CRUD Operations**:
+   ```python
+   # apps/backend/crud/milestone.py
+   async def get_milestone(db: Session, milestone_id: str) -> Optional[Milestone]:
+       return db.query(Milestone).filter(Milestone.id == milestone_id).first()
+   ```
+
+3. **Transactions**:
+   ```python
+   async def create_analysis(db: Session, analysis: AnalysisCreate) -> AnalysisResult:
+       db_analysis = AnalysisResult(**analysis.dict())
+       db.add(db_analysis)
+       try:
+           db.commit()
+           db.refresh(db_analysis)
+           return db_analysis
+       except IntegrityError:
+           db.rollback()
+           raise HTTPException(status_code=400, detail="Analysis already exists")
+   ```
+
+### ChromaDB/RAG Patterns
+
+1. **Indexing**:
+   ```python
+   collection = client.get_or_create_collection("issue_embeddings")
+   collection.add(
+       ids=[f"issue_{issue.id}"],
+       embeddings=[embedding],
+       documents=[f"{issue.title}\n{issue.body}"],
+       metadatas=[{"repo": issue.repo.full_name, "state": issue.state}]
+   )
+   ```
+
+2. **Retrieval**:
+   ```python
+   results = collection.query(
+       query_texts=["How to resolve CI/CD failures?"],
+       n_results=5,
+       where={"repo": "microsoft/vscode"}
+   )
+   ```
+
+### Streamlit Best Practices
+
+1. **Page Structure**:
+   ```python
+   import streamlit as st
+
+   st.set_page_config(page_title="Dashboard", layout="wide")
+
+   st.title("📊 Organization Dashboard")
+
+   # Use columns for layout
+   col1, col2 = st.columns(2)
+   with col1:
+       st.metric("Active Sprints", 5)
+   with col2:
+       st.metric("At Risk", 2)
+   ```
+
+2. **Caching**:
+   ```python
+   @st.cache_data(ttl=300)  # Cache for 5 minutes
+   def fetch_milestones(org: str):
+       response = requests.get(f"{BACKEND_URL}/api/v1/milestones?org={org}")
+       return response.json()
+   ```
+
+3. **State Management**:
+   ```python
+   if "selected_repo" not in st.session_state:
+       st.session_state.selected_repo = None
+   ```
+
+---
+
+## Testing Guidelines
+
+### Unit Tests
+```python
+# tests/unit/test_feature_engineering.py
+import pytest
+from services.feature_engineering import compute_code_features
+
+def test_compute_code_features():
+    commits = [...]
+    features = compute_code_features(commits)
+    assert "code_churn" in features
+    assert features["code_churn"] > 0
+```
+
+### Integration Tests
+```python
+# tests/integration/test_analysis_api.py
+from fastapi.testclient import TestClient
+
+def test_analyze_milestone(client: TestClient):
+    response = client.post("/api/v1/analysis", json={"milestone_id": "123"})
+    assert response.status_code == 200
+    assert "health_score" in response.json()
+```
+
+### Agent Tests
+```python
+# tests/agents/test_sprint_analyzer.py
+def test_sprint_analyzer_agent():
+    state = {"features": {...}}
+    result = sprint_analyzer_node(state)
+    assert "health_score" in result
+```
+
+---
+
+## Git Commit Guidelines
+
+**Format**: `<type>(<scope>): <subject>`
+
+**Types**:
+- `feat`: New feature
+- `fix`: Bug fix
+- `docs`: Documentation
+- `refactor`: Code refactoring
+- `test`: Adding tests
+- `chore`: Maintenance
+
+**Examples**:
+```
+feat(agents): add risk assessor agent
+fix(api): handle missing milestone gracefully
+docs(architecture): update system design
+refactor(database): optimize milestone queries
+test(rag): add ChromaDB integration tests
+```
+
+---
+
+## Security Rules
+
+1. **Never hardcode secrets**:
+   ```python
+   # ❌ BAD
+   GITHUB_TOKEN = "ghp_xxxxxxxxxxxx"
+
+   # ✅ GOOD
+   GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+   ```
+
+2. **Validate inputs**:
+   ```python
+   from pydantic import BaseModel, validator
+
+   class MilestoneCreate(BaseModel):
+       title: str
+
+       @validator("title")
+       def title_must_not_be_empty(cls, v):
+           if not v or not v.strip():
+               raise ValueError("Title cannot be empty")
+           return v
+   ```
+
+3. **Use parameterized queries** (SQLAlchemy ORM automatically handles this)
+
+4. **Sanitize LLM outputs**:
+   ```python
+   from html import escape
+
+   def safe_llm_output(text: str) -> str:
+       return escape(text)
+   ```
+
+---
+
+## Performance Optimization
+
+1. **Use async for I/O**:
+   ```python
+   async def batch_fetch_issues(repo: str):
+       async with httpx.AsyncClient() as client:
+           tasks = [client.get(f"/repos/{repo}/issues/{i}") for i in range(100)]
+           responses = await asyncio.gather(*tasks)
+   ```
+
+2. **Database indexing**: Always index foreign keys and frequently queried fields
+
+3. **Caching**:
+   ```python
+   from functools import lru_cache
+
+   @lru_cache(maxsize=128)
+   def get_embedding_model():
+       return SentenceTransformer("all-MiniLM-L6-v2")
+   ```
+
+4. **Batch processing**:
+   ```python
+   # Process in batches to avoid memory issues
+   BATCH_SIZE = 100
+   for i in range(0, len(issues), BATCH_SIZE):
+       batch = issues[i:i+BATCH_SIZE]
+       embeddings = model.encode([i.title for i in batch])
+   ```
+
+---
+
+## Common Pitfalls to Avoid
+
+1. ❌ **Don't block the event loop**:
+   ```python
+   # BAD - synchronous in async function
+   async def process():
+       time.sleep(10)  # Blocks!
+
+   # GOOD
+   async def process():
+       await asyncio.sleep(10)
+   ```
+
+2. ❌ **Don't forget to close database sessions**:
+   ```python
+   # BAD
+   db = SessionLocal()
+   milestone = db.query(Milestone).first()
+
+   # GOOD
+   with SessionLocal() as db:
+       milestone = db.query(Milestone).first()
+   ```
+
+3. ❌ **Don't expose internal errors to users**:
+   ```python
+   # BAD
+   except Exception as e:
+       raise HTTPException(status_code=500, detail=str(e))
+
+   # GOOD
+   except Exception as e:
+       logger.error(f"Analysis failed: {e}")
+       raise HTTPException(status_code=500, detail="Internal server error")
+   ```
+
+---
+
+## When to Ask for Clarification
+
+Ask the user if:
+- Requirements are ambiguous (e.g., "analyze sprint" - which metrics?)
+- Multiple valid approaches exist (e.g., sync vs async)
+- Performance tradeoffs need decisions (e.g., cache duration)
+- Security implications are unclear
+
+---
+
+## Code Review Checklist
+
+Before marking code as complete, verify:
+- [ ] Type hints present
+- [ ] Docstrings added
+- [ ] Error handling implemented
+- [ ] Logging added
+- [ ] Tests written (if applicable)
+- [ ] No hardcoded secrets
+- [ ] Follows naming conventions
+- [ ] Database migrations created (if schema changed)
+- [ ] Documentation updated
+
+---
+
+**Last Updated**: February 14, 2026
+**Version**: 1.0.0

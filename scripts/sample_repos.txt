@@ -1,0 +1,29 @@
+# Sample repositories for testing data collection
+# Format: owner/repo (one per line)
+# Lines starting with # are ignored
+
+# Large open source projects with active milestones
+microsoft/vscode
+facebook/react
+tensorflow/tensorflow
+kubernetes/kubernetes
+nodejs/node
+microsoft/TypeScript
+python/cpython
+rust-lang/rust
+golang/go
+angular/angular
+
+# Medium-sized projects
+vercel/next.js
+pallets/flask
+django/django
+rails/rails
+laravel/laravel
+
+# Smaller active projects
+fastapi/fastapi
+sveltejs/svelte
+vuejs/vue
+nuxt/nuxt
+nestjs/nest

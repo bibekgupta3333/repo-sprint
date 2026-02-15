@@ -2,13 +2,13 @@
 
 ## 🎯 Core Research Problem
 
-**How can we develop an intelligent system that provides real-time, explainable, and actionable insights for sprint and milestone management across an entire GitHub organization?**
+**How can we develop a lightweight, instantly deployable system that provides real-time, explainable sprint insights for small startups (2-3 GitHub repos) without requiring historical data, extensive setup, or cloud infrastructure?**
 
 ## 📊 Research Gaps (from 50 Papers)
 
 | Gap | Papers Addressing | Severity | Impact | Our Solution |
 |-----|-------------------|----------|--------|--------------|
-| 1. Org-level LLM intelligence | 0/50 | **Critical** | 40-60% accuracy gain | Multi-repo federated learning + LoRA |
+| 1. Project-level LLM intelligence | 0/50 | **Critical** | 40-60% accuracy gain | Multi-repo federated learning + LoRA |
 | 2. Real-time LLM monitoring | 1/50 (partial) | **Critical** | 62% faster detection | Kafka + async LLM inference |
 | 3. Multi-modal fusion | 2/50 (partial) | **High** | 35% improvement | Custom transformer fusing 6 modalities |
 | 4. Explainable AI | 0/50 | **High** | 4× trust increase | RAG with evidence attribution |
@@ -39,7 +39,7 @@
 - **Trainable**: 350M parameters (0.5%) via LoRA (rank=16)
 - **Cold-Start**: <7 days with 100-500 examples (vs. 6-12 months)
 
-**Impact**: Enable rapid org-specific adaptation without massive compute
+**Impact**: Enable rapid project-specific adaptation without massive compute
 
 ### 3. Real-Time Stream Processing
 ```
@@ -84,43 +84,44 @@ Prediction → Sprint outcome + Manager feedback → Reward signal → PPO updat
 
 ### Quantitative Targets:
 - ✅ Sprint success prediction F1 > 0.90
-- ✅ Real-time latency < 1 minute
+- ✅ Real-time latency < 30 seconds
 - ✅ Stakeholder trust > 80%
-- ✅ Cold-start deployment < 7 days
-- ✅ Handle 100+ repositories simultaneously
+- ✅ Instant setup < 10 minutes
+- ✅ Handle 2-3 repositories efficiently (small startup scale)
 
 ### Qualitative Goals:
 - ✅ Explainable predictions with evidence
 - ✅ Actionable intervention recommendations
-- ✅ Continuous improvement from feedback
-- ✅ Cross-repository intelligence
-- ✅ Human-AI collaborative framework
+- ✅ Local deployment (no cloud required)
+- ✅ Cross-repository dependency detection
+- ✅ Privacy-preserving (all data stays local)
 
 ## 📊 Dataset
 
-**Source**: GitHub Archive + GHTorrent  
-**Timespan**: March 2020 - February 2026 (6 years)  
+**Source**: GitHub Archive (Public Data) + Synthetic Data  
+**Timespan**: March 2023 - February 2026 (3 years)  
 **Scale**: 
-- Organizations: 500
-- Repositories: 15,000
-- Samples: 38,000 sprints/milestones
-  - Train: 25,000
-  - Validation: 8,000
-  - Test: 5,000
-- Events: 3.8M GitHub events
-- Synthetic: 5,000 LLM-generated scenarios
+- Startups: 200 small organizations (2-5 repos each)
+- Repositories: 600 repositories with active development
+- Samples: 12,000 sprint/milestone instances
+  - Train: 8,000
+  - Validation: 2,500
+  - Test: 1,500
+- Synthetic: 5,000 LLM-generated scenarios (cold-start)
+- Events: ~1M GitHub events (filtered for startup-scale repos)
 
 **Modalities**: Code, Text, Temporal, Graph, Sentiment, CI/CD
 
 ## 🔬 Technical Stack
 
-- **LLM**: Llama-3-70B with LoRA (rank=16, alpha=32)
-- **Fusion**: Custom transformer (d_model=2048, 6 layers)
-- **Embeddings**: CodeBERT (code), RoBERTa (text), GNN (graph)
-- **Streaming**: Apache Kafka (event processing)
-- **RAG**: ChromaDB or Pinecone (vector store)
-- **Training**: PyTorch + Transformers + PEFT
-- **RLHF**: PPO (Proximal Policy Optimization)
+- **LLM**: Ollama (Llama-3-8B-Q4) - Local deployment
+- **Fusion**: Lightweight transformer (optimized for <16GB RAM)
+- **Embeddings**: Sentence-BERT (all-MiniLM-L6-v2, 384-dim)
+- **Vector Store**: ChromaDB (local-first, persistent)
+- **Database**: PostgreSQL + SQLite hybrid
+- **Cache**: Redis (optional, for performance)
+- **Deployment**: Docker Compose (single laptop)
+- **Frontend**: Streamlit (rapid prototyping)
 
 ## 📅 16-Week Timeline
 
@@ -136,16 +137,16 @@ Prediction → Sprint outcome + Manager feedback → Reward signal → PPO updat
 
 | Aspect | Competitors | Our Approach | Advantage |
 |--------|-------------|--------------|-----------|
-| **Scope** | Single repo | Organization-wide | Multi-repo learning |
+| **Scope** | Single repo | 2-3 repos (startup focus) | Cross-repo intelligence |
 | **Modalities** | 1-2 sources | 6 modalities | +35% accuracy |
-| **Adaptation** | Generic | Org-specific LoRA | <7 day deployment |
-| **Timing** | Batch (15-30 min) | Real-time (<1 min) | 15-30× faster |
+| **Deployment** | Cloud/Enterprise | Local laptop (16GB RAM) | Zero cloud costs |
+| **Setup Time** | Weeks + historical data | <10 minutes, no history | Instant value |
 | **Explainability** | Black box | RAG + evidence | 4× trust |
-| **Learning** | Static | RLHF continuous | Break ceiling |
+| **Infrastructure** | Expensive servers | Docker on MacBook | Accessible to all |
 
 ## 🎓 Research Contributions
 
-1. **Theoretical**: First formulation of org-level sprint management as multi-modal LLM problem
+1. **Theoretical**: First formulation of project-level sprint management as multi-modal LLM problem
 2. **Methodological**: Novel fusion architecture combining code/text/temporal/graph/sentiment/CI
 3. **Empirical**: Evidence that LoRA enables few-shot org adaptation (<500 examples)
 4. **Applied**: Production-ready system with real-time capabilities
@@ -160,22 +161,22 @@ Prediction → Sprint outcome + Manager feedback → Reward signal → PPO updat
 - Automation: 8 papers (2018-2022) - 40% time savings
 - Advanced Analytics: 15 papers (2015-2023) - various techniques
 
-**Key Finding**: No existing work combines all our elements (multi-modal + org-level + real-time + explainable + adaptive)
+**Key Finding**: No existing work combines all our elements (multi-modal + project-level + real-time + explainable + adaptive)
 
 ## 💡 Innovation Summary
 
 **What exists**: 
 - Single-repo analysis
-- Offline batch processing
+- Enterprise-focused tools
 - Black-box ML predictions
-- Static models
+- Cloud-only deployment
 - Code OR text OR metrics
 
 **What's novel**:
-- Organization-wide intelligence
-- Real-time stream analysis
+- Lightweight startup intelligence (2-3 repos)
+- Local laptop deployment (no cloud)
 - Explainable AI with evidence
-- Continuous learning (RLHF)
+- Instant setup (no historical data)
 - Multi-modal fusion (code AND text AND temporal AND graph AND sentiment AND CI/CD)
 
 ## 📊 Expected Impact
