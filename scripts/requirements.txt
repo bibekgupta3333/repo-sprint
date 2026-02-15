@@ -19,7 +19,7 @@ chromadb==0.4.22
 
 # LLM & Embeddings
 sentence-transformers==2.3.1
-transformers==4.37.2
+transformers==4.53.0
 torch==2.1.2
 
 # Utilities
