@@ -1,0 +1,27 @@
+{
+  "name": "sprint-intelligence-data",
+  "version": "1.0.0",
+  "description": "GitHub data pipeline for sprint intelligence research",
+  "scripts": {
+    "ingest": "python scripts/ingest.py",
+    "all": "python scripts/ingest.py golang go && python scripts/ingest.py rust-lang rust && python scripts/ingest.py torvalds linux",
+    "analyze": "python scripts/analyze_data.py",
+    "process": "python scripts/process_data.py"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bibekgupta3333/repo-sprint"
+  },
+  "keywords": [
+    "github",
+    "sprint",
+    "intelligence",
+    "data-scraping",
+    "research"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "requests": "^2.32.0"
+  }
+}
