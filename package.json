@@ -5,6 +5,8 @@
   "scripts": {
     "ingest": "python scripts/ingest.py",
     "all": "python scripts/ingest.py golang go && python scripts/ingest.py rust-lang rust && python scripts/ingest.py torvalds linux",
+    "generate-synthetic": "python src/data/synthetic_generator.py",
+    "prepare-training": "python scripts/prepare_training_data.py",
     "analyze": "python scripts/analyze_data.py",
     "process": "python scripts/process_data.py"
   },

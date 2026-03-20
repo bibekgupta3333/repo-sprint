@@ -40,6 +40,8 @@ Code Changes: {metrics['code_changes']} (additions + deletions)
                 "repo": repo,
                 "type": "sprint_summary",
                 "date": self.sprint["start_date"],
+                "risk_score": self.sprint.get("risk_label", {}).get("risk_score", 0),
+                "is_at_risk": self.sprint.get("risk_label", {}).get("is_at_risk", False),
                 **metrics,
             },
         })

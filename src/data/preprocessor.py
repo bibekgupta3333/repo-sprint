@@ -2,6 +2,7 @@
 from datetime import datetime, timedelta
 from typing import TypedDict
 from collections import defaultdict
+from .features import FeatureExtractor, RiskLabeler
 
 
 class SprintData(TypedDict):
@@ -98,7 +99,8 @@ class SprintPreprocessor:
                 "code_changes": sum(p.get("additions", 0) + p.get("deletions", 0) for p in prs),
             }
 
-            sprints.append({
+            # Create sprint dict for feature extraction
+            sprint_dict = {
                 "sprint_id": sprint_id,
                 "start_date": start_date.isoformat(),
                 "end_date": end_date.isoformat(),
@@ -107,6 +109,27 @@ class SprintPreprocessor:
                 "prs": prs,
                 "commits": commits,
                 "metrics": metrics,
-            })
+            }
+
+            # Extract 18 metrics and compute risk label
+            try:
+                repo_data = {
+                    "owner": self.repo.split("/")[0],
+                    "name": self.repo.split("/")[1],
+                }
+                extractor = FeatureExtractor(repo_data, sprint_dict)
+                computed_metrics = extractor.extract_metrics()
+                sprint_dict["metrics"].update(computed_metrics)
+                risk_label = RiskLabeler.label_sprint(computed_metrics)
+                sprint_dict["risk_label"] = risk_label
+            except Exception:
+                sprint_dict["risk_label"] = {
+                    "risk_score": 0,
+                    "is_at_risk": False,
+                    "risk_factors": [],
+                    "blocker_indicators": [],
+                }
+
+            sprints.append(sprint_dict)
 
         return sprints
