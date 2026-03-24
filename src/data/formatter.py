@@ -14,23 +14,27 @@ class ChromaFormatter:
     def __init__(self, sprint_data: dict):
         self.sprint = sprint_data
 
-    def format_documents(self) -> list[ChromaDocument]:
-        """Format sprint data as Chroma documents."""
+    def _build_flat_documents(self) -> list[ChromaDocument]:
+        """Build flat, chunk-style documents used by vector stores."""
         docs = []
 
         sprint_id = self.sprint["sprint_id"]
         repo = self.sprint["repo"]
         metrics = self.sprint["metrics"]
 
-        sprint_context = f"""
-Sprint: {sprint_id}
-Repository: {repo}
-Period: {self.sprint['start_date']} to {self.sprint['end_date']}
-Issues: {metrics['total_issues']} (closed: {metrics['closed_issues']})
-PRs: {metrics['total_prs']} (merged: {metrics['merged_prs']})
-Commits: {metrics['total_commits']}
-Code Changes: {metrics['code_changes']} (additions + deletions)
-"""
+        total_additions = metrics.get("total_additions", 0)
+        total_deletions = metrics.get("total_deletions", 0)
+        files_changed = metrics.get("files_changed", 0)
+
+        sprint_context = (
+            f"Sprint: {sprint_id}\n"
+            f"Repository: {repo}\n"
+            f"Period: {self.sprint['start_date']} to {self.sprint['end_date']}\n"
+            f"Issues: {metrics['total_issues']} (closed: {metrics['closed_issues']})\n"
+            f"PRs: {metrics['total_prs']} (merged: {metrics['merged_prs']})\n"
+            f"Commits: {metrics['total_commits']}\n"
+            f"Code Changes: +{total_additions} -{total_deletions} across {files_changed} files"
+        )
 
         docs.append({
             "id": f"{sprint_id}_summary",
@@ -78,20 +82,74 @@ Code Changes: {metrics['code_changes']} (additions + deletions)
             })
 
         for commit in self.sprint["commits"]:
+            raw_author = commit.get("author")
+            if isinstance(raw_author, dict):
+                author_label = raw_author.get("login") or raw_author.get("url") or "unknown"
+            else:
+                author_label = raw_author or "unknown"
+
+            diff = commit.get("diff") or {}
+            has_diff = bool(diff)
+            diff_additions = diff.get("total_additions", 0)
+            diff_deletions = diff.get("total_deletions", 0)
+            diff_files_changed = diff.get("files_changed", 0)
+
+            file_summaries = []
+            for file_diff in (diff.get("file_diffs") or [])[:10]:
+                file_summaries.append(
+                    f"- {file_diff.get('filename', '')} [{file_diff.get('status', 'modified')}] "
+                    f"(+{file_diff.get('additions', 0)} -{file_diff.get('deletions', 0)})"
+                )
+
+            file_summary_text = "\n".join(file_summaries) if file_summaries else "- none"
+
+            commit_content = (
+                f"Commit {commit['sha']} by {author_label}\n\n"
+                f"{commit['message']}\n\n"
+                f"Code Changes: +{diff_additions} -{diff_deletions} across {diff_files_changed} files\n"
+                f"Files:\n{file_summary_text}"
+            )
+
             docs.append({
                 "id": f"{sprint_id}_commit_{commit['sha']}",
-                "content": (
-                    f"Commit {commit['sha']} by {commit['author']}\n\n"
-                    f"{commit['message']}"
-                ),
+                "content": commit_content,
                 "metadata": {
                     "sprint_id": sprint_id,
                     "repo": repo,
                     "type": "commit",
                     "sha": commit["sha"],
-                    "author": commit["author"],
+                    "author": author_label,
                     "date": commit["created_at"],
+                    "has_diff": has_diff,
+                    "total_additions": diff_additions,
+                    "total_deletions": diff_deletions,
+                    "files_changed": diff_files_changed,
+                    "file_diffs": diff.get("file_diffs", []),
                 },
             })
 
         return docs
+
+    def format_documents(self) -> list[ChromaDocument]:
+        """Format sprint data as Chroma flat documents."""
+        return self._build_flat_documents()
+
+    def format_documents_by_sprint(self) -> dict:
+        """Format sprint data in a sprint-aligned document structure."""
+        flat_docs = self._build_flat_documents()
+
+        summary = next((d for d in flat_docs if d["metadata"].get("type") == "sprint_summary"), None)
+        issues = [d for d in flat_docs if d["metadata"].get("type") == "issue"]
+        prs = [d for d in flat_docs if d["metadata"].get("type") == "pr"]
+        commits = [d for d in flat_docs if d["metadata"].get("type") == "commit"]
+
+        return {
+            "sprint_id": self.sprint["sprint_id"],
+            "repo": self.sprint["repo"],
+            "start_date": self.sprint["start_date"],
+            "end_date": self.sprint["end_date"],
+            "summary": summary,
+            "issues": issues,
+            "prs": prs,
+            "commits": commits,
+        }

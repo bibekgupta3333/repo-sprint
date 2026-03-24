@@ -24,6 +24,7 @@ class SprintPreprocessor:
         self.issues = repo_data["issues"]
         self.prs = repo_data["prs"]
         self.commits = repo_data["commits"]
+        self.commit_diffs = repo_data.get("commit_diffs", [])
 
     def _get_date(self, item: dict, date_field: str = "created_at") -> datetime:
         """Extract date from item."""
@@ -38,6 +39,16 @@ class SprintPreprocessor:
             sprint_id = sprint_mapping.get(date.date())
             if sprint_id:
                 sprints[sprint_id].append(item)
+        return sprints
+
+    def _group_commit_diffs_by_sprint(self, commit_diffs: list, sprint_mapping: dict) -> dict:
+        """Group commit diffs into sprints by created_at date."""
+        sprints = defaultdict(list)
+        for diff in commit_diffs:
+            date = self._get_date(diff)
+            sprint_id = sprint_mapping.get(date.date())
+            if sprint_id:
+                sprints[sprint_id].append(diff)
         return sprints
 
     def create_sprints(self) -> list[SprintData]:
@@ -73,22 +84,61 @@ class SprintPreprocessor:
         issue_sprints = self._group_by_sprint(self.issues, sprint_mapping)
         pr_sprints = self._group_by_sprint(self.prs, sprint_mapping)
         commit_sprints = self._group_by_sprint(self.commits, sprint_mapping)
+        commit_diff_sprints = self._group_commit_diffs_by_sprint(self.commit_diffs, sprint_mapping)
+
+        # Map short SHA -> diff for commits that only appear on PRs
+        sha_to_diff = {}
+        for diff in self.commit_diffs:
+            sha = diff.get("sha", "") or ""
+            sha_to_diff[sha] = diff
+            sha_to_diff[sha[:7]] = diff
 
         sprints = []
         all_sprint_ids = set(issue_sprints.keys()) | set(pr_sprints.keys())
-        all_sprint_ids |= set(commit_sprints.keys())
+        all_sprint_ids |= set(commit_sprints.keys()) | set(commit_diff_sprints.keys())
         for sprint_id in sorted(all_sprint_ids):
             issues = issue_sprints.get(sprint_id, [])
             prs = pr_sprints.get(sprint_id, [])
             commits = commit_sprints.get(sprint_id, [])
+            commit_diffs = commit_diff_sprints.get(sprint_id, [])
+
+            # Enrich branch commits with diff (prefer value from ingest; else lookup)
+            for commit in commits:
+                if commit.get("diff") is None:
+                    key = (commit.get("sha") or "")[:7]
+                    commit["diff"] = sha_to_diff.get(key) or sha_to_diff.get(
+                        commit.get("sha", "")
+                    )
+
+            # Same for commits attached to PRs in this sprint
+            for pr in prs:
+                for pc in pr.get("commits") or []:
+                    if pc.get("diff") is None:
+                        pk = (pc.get("sha") or "")[:7]
+                        pc["diff"] = sha_to_diff.get(pk) or sha_to_diff.get(
+                            pc.get("sha", "")
+                        )
 
             if issues:
                 start_date = self._get_date(issues[0])
             elif prs:
                 start_date = self._get_date(prs[0])
-            else:
+            elif commits:
                 start_date = self._get_date(commits[0])
+            else:
+                start_date = self._get_date(commit_diffs[0])
             end_date = start_date + timedelta(days=13)
+
+            # Calculate code diff metrics
+            total_additions = sum(d.get("total_additions", 0) for d in commit_diffs)
+            total_deletions = sum(d.get("total_deletions", 0) for d in commit_diffs)
+            total_files_changed = sum(d.get("files_changed", 0) for d in commit_diffs)
+
+            # Aggregate language breakdown
+            lang_breakdown = {}
+            for diff in commit_diffs:
+                for lang, count in diff.get("language_breakdown", {}).items():
+                    lang_breakdown[lang] = lang_breakdown.get(lang, 0) + count
 
             metrics = {
                 "total_issues": len(issues),
@@ -97,6 +147,10 @@ class SprintPreprocessor:
                 "closed_issues": len([i for i in issues if i["state"] == "closed"]),
                 "merged_prs": len([p for p in prs if p["state"] == "merged"]),
                 "code_changes": sum(p.get("additions", 0) + p.get("deletions", 0) for p in prs),
+                "total_additions": total_additions,
+                "total_deletions": total_deletions,
+                "files_changed": total_files_changed,
+                "language_breakdown": lang_breakdown,
             }
 
             # Create sprint dict for feature extraction
@@ -108,6 +162,7 @@ class SprintPreprocessor:
                 "issues": issues,
                 "prs": prs,
                 "commits": commits,
+                "commit_diffs": commit_diffs,
                 "metrics": metrics,
             }
 

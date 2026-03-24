@@ -3,6 +3,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, List
 import json
+import os
+import re
 import requests
 
 
@@ -38,7 +40,8 @@ def parse_issue(issue_data: dict) -> dict:
         'author': parse_author(issue_data.get('user')),
         'url': issue_data['html_url'],
         'labels': [label['name'] for label in issue_data.get('labels', [])],
-        'body': body_text
+        'body': body_text,
+        'related_prs': [],
     }
 
 
@@ -60,7 +63,9 @@ def parse_pr(pr_data: dict) -> dict:
         'labels': [label['name'] for label in pr_data.get('labels', [])],
         'body': body_text,
         'additions': pr_data.get('additions', 0),
-        'deletions': pr_data.get('deletions', 0)
+        'deletions': pr_data.get('deletions', 0),
+        'commits': [],
+        'file_diffs': [],
     }
 
 
@@ -69,13 +74,36 @@ def parse_commit(commit_data: dict) -> dict:
     commit_info = commit_data.get('commit', {})
     author_info = commit_info.get('author', {})
 
+    full_sha = commit_data.get('sha', '') or ''
     return {
-        'sha': commit_data.get('sha', '')[:7],
+        'sha': full_sha[:7] if full_sha else '',
+        'sha_full': full_sha,
         'message': commit_info.get('message', '').split('\n')[0][:200],
         'author': parse_author(commit_data.get('author')),
         'created_at': author_info.get('date', datetime.now().isoformat()),
-        'url': commit_data.get('html_url', '')
+        'url': commit_data.get('html_url', ''),
     }
+
+
+# PR body/title patterns that link a PR to an issue (GitHub closing keywords).
+_ISSUE_LINK_PATTERN = re.compile(
+    r'(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)\s+#(\d+)',
+    re.IGNORECASE,
+)
+
+
+def link_issues_to_pull_requests(issues: List[dict], prs: List[dict]) -> None:
+    """Populate issue['related_prs'] with PR numbers that reference the issue."""
+    for issue in issues:
+        inum = issue['number']
+        related: List[int] = []
+        for pr in prs:
+            text = f"{pr.get('title', '')}\n{pr.get('body') or ''}"
+            for match in _ISSUE_LINK_PATTERN.finditer(text):
+                if int(match.group(1)) == inum:
+                    related.append(pr['number'])
+                    break
+        issue['related_prs'] = sorted(set(related))
 
 
 class Scraper:
@@ -90,6 +118,9 @@ class Scraper:
             'Accept': 'application/vnd.github.v3+json',
             'User-Agent': 'ResearchBot/1.0'
         })
+        token = os.environ.get('GITHUB_TOKEN') or os.environ.get('GH_TOKEN')
+        if token:
+            self.session.headers['Authorization'] = f'token {token}'
 
     def get(self, url: str, params: dict = None):
         """Make GET request."""
@@ -167,14 +198,26 @@ class Scraper:
 
         return prs
 
-    def get_commits(self, owner: str, repo: str, limit: int = 50) -> List[dict]:
+    def get_commits(
+        self,
+        owner: str,
+        repo: str,
+        limit: int = 50,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+    ) -> List[dict]:
         """Fetch commits."""
         commits = []
         page = 1
 
         while len(commits) < limit:
             url = f"{self.BASE_URL}/repos/{owner}/{repo}/commits"
-            data = self.get(url, {'per_page': 100, 'page': page})
+            params = {'per_page': 100, 'page': page}
+            if since:
+                params['since'] = since
+            if until:
+                params['until'] = until
+            data = self.get(url, params)
 
             if not data:
                 break
@@ -194,10 +237,57 @@ class Scraper:
 
         return commits
 
+    def get_pull_commits(self, owner: str, repo: str, pr_number: int) -> List[dict]:
+        """Fetch commits for a pull request (paginated)."""
+        commits: List[dict] = []
+        page = 1
+        while True:
+            url = f"{self.BASE_URL}/repos/{owner}/{repo}/pulls/{pr_number}/commits"
+            data = self.get(url, {'per_page': 100, 'page': page})
+            if not data:
+                break
+            for item in data:
+                try:
+                    commits.append(parse_commit(item))
+                except Exception as e:
+                    print(f"  Warning: Failed to parse PR #{pr_number} commit: {e}")
+            if len(data) < 100:
+                break
+            page += 1
+        return commits
+
+    def get_pull_files(self, owner: str, repo: str, pr_number: int) -> List[dict]:
+        """Fetch per-file patches for a pull request (paginated)."""
+        files_out: List[dict] = []
+        page = 1
+        while True:
+            url = f"{self.BASE_URL}/repos/{owner}/{repo}/pulls/{pr_number}/files"
+            data = self.get(url, {'per_page': 100, 'page': page})
+            if not data:
+                break
+            for item in data:
+                files_out.append({
+                    'filename': item.get('filename', ''),
+                    'status': item.get('status', 'modified'),
+                    'additions': item.get('additions', 0),
+                    'deletions': item.get('deletions', 0),
+                    'changes': item.get(
+                        'changes',
+                        item.get('additions', 0) + item.get('deletions', 0),
+                    ),
+                    'patch': item.get('patch') or '',
+                })
+            if len(data) < 100:
+                break
+            page += 1
+        return files_out
+
     def ingest(self, owner: str, repo: str,
                issues_limit: int = 50,
                prs_limit: int = 50,
-               commits_limit: int = 50) -> Optional[dict]:
+               commits_limit: int = 50,
+               commit_since: Optional[str] = None,
+               commit_until: Optional[str] = None) -> Optional[dict]:
         """Download all data for a repository."""
         url = f"{self.BASE_URL}/repos/{owner}/{repo}"
         repo_data = self.get(url)
@@ -212,8 +302,16 @@ class Scraper:
         prs = self.get_prs(owner, repo, limit=prs_limit)
         print(f"  PRs: {len(prs)}")
 
-        commits = self.get_commits(owner, repo, limit=commits_limit)
+        commits = self.get_commits(
+            owner,
+            repo,
+            limit=commits_limit,
+            since=commit_since,
+            until=commit_until,
+        )
         print(f"  Commits: {len(commits)}")
+
+        link_issues_to_pull_requests(issues, prs)
 
         return {
             'owner': owner,
@@ -224,8 +322,9 @@ class Scraper:
             'forks': repo_data['forks_count'],
             'language': repo_data.get('language'),
             'issues': issues,
-            'pull_requests': prs,
-            'commits': commits
+            'prs': prs,
+            'commits': commits,
+            'commit_diffs': []  # Will be populated by ingest.py if --diffs is used
         }
 
     def save(self, repo_data: dict, output_dir: str = 'data/raw') -> str:

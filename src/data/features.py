@@ -28,6 +28,15 @@ class SprintMetrics(TypedDict):
     author_participation: float
 
 
+def _author_login(author: object) -> str:
+    """Normalize GitHub user field (dict from API or string)."""
+    if author is None:
+        return "unknown"
+    if isinstance(author, dict):
+        return author.get("login") or "unknown"
+    return str(author)
+
+
 class FeatureExtractor:
     """Extract 18 metrics from sprint data."""
 
@@ -113,16 +122,13 @@ class FeatureExtractor:
     def _team_metrics(self) -> dict:
         """Unique authors, participation rate."""
         authors = set(
-            i.get("author", "unknown") for i in self.issues
-            if i.get("author")
+            _author_login(i.get("author")) for i in self.issues if i.get("author")
         )
         authors.update(
-            p.get("author", "unknown") for p in self.prs
-            if p.get("author")
+            _author_login(p.get("author")) for p in self.prs if p.get("author")
         )
         authors.update(
-            c.get("author", "unknown") for c in self.commits
-            if c.get("author")
+            _author_login(c.get("author")) for c in self.commits if c.get("author")
         )
 
         total_items = len(self.issues) + len(self.prs) + len(self.commits)

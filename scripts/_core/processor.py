@@ -50,7 +50,8 @@ class Processor:
     def extract_prs(self) -> List[Dict]:
         """Extract PR features."""
         features = []
-        for pr in self.data['pull_requests']:
+        prs_data = self.data.get('prs', self.data.get('pull_requests', []))
+        for pr in prs_data:
             created = datetime.fromisoformat(
                 pr['created_at'].replace('Z', '+00:00')
             )
@@ -88,7 +89,8 @@ class Processor:
             date = issue['created_at'][:10]
             timeline[date]['issues'] += 1
 
-        for pr in self.data['pull_requests']:
+        prs_data = self.data.get('prs', self.data.get('pull_requests', []))
+        for pr in prs_data:
             date = pr['created_at'][:10]
             timeline[date]['prs'] += 1
 
@@ -106,7 +108,8 @@ class Processor:
             author = issue['author']['login']
             contributors[author]['issues'] += 1
 
-        for pr in self.data['pull_requests']:
+        prs_data = self.data.get('prs', self.data.get('pull_requests', []))
+        for pr in prs_data:
             author = pr['author']['login']
             contributors[author]['prs'] += 1
 

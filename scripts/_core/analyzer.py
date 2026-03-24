@@ -38,7 +38,7 @@ class Analyzer:
 
     def pr_stats(self) -> Dict:
         """Get PR statistics."""
-        prs = self.data['pull_requests']
+        prs = self.data.get('prs', self.data.get('pull_requests', []))
         merged_count = sum(1 for p in prs if p['state'] == 'merged')
         open_count = sum(1 for p in prs if p['state'] == 'open')
         closed_count = sum(1 for p in prs if p['state'] == 'closed')
