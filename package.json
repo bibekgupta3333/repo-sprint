@@ -34,8 +34,16 @@
     "local:golang:offline:pr-only": "python scripts/ingest_local.py repos/golang/go --owner golang --repo go --diffs --offline --skip-local-issues",
     "local:golang:offline:issue-only": "python scripts/ingest_local.py repos/golang/go --owner golang --repo go --diffs --offline --skip-local-prs",
 
-    "generate-synthetic": "python src/data/synthetic_generator.py",
-    "prepare-training": "python scripts/prepare_training_data.py",
+    "generate-synthetic": "python src/data/synthetic_generator.py --count 5000 --personas all",
+    "generate-synthetic:startup": "python src/data/synthetic_generator.py --count 5000 --personas startup",
+    "generate-synthetic:oss": "python src/data/synthetic_generator.py --count 5000 --personas large_oss",
+    "calibrate-synthetic": "python src/data/synthetic_generator.py --calibrate data/golang_go_sprints.json",
+
+    "prepare-training": "python scripts/prepare_training_data.py --config all",
+    "prepare-training:baseline": "python scripts/prepare_training_data.py --config baseline",
+    "prepare-training:h3": "python scripts/prepare_training_data.py --config h3",
+    "prepare-training:syn-only": "python scripts/prepare_training_data.py --config syn_only",
+
     "analyze": "python scripts/analyze_data.py",
     "process": "python scripts/process_data.py"
   },
