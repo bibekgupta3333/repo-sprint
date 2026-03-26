@@ -212,6 +212,8 @@ def _build_distribution_profile(
     res_rates: list,
     stalled_vals: list,
     unreviewed_vals: list,
+    issues_vals: list,
+    adds_vals: list,
     files_vals: list,
     avg_pr_vals: list,
     dels: list,
@@ -272,6 +274,40 @@ def _build_distribution_profile(
             "mu": mu, "sigma": sigma,
             "max_val": max(unreviewed_vals),
         }
+
+    # --- Calibrated counts: issues/additions/deletions ---
+    if issues_vals:
+        positive_issues = [v for v in issues_vals if v > 0]
+        if positive_issues:
+            mu, sigma = _lognormal_params(
+                positive_issues, robust=True)
+            profile["total_issues"] = {
+                "type": "lognormal",
+                "mu": mu, "sigma": sigma,
+                "max_val": max(issues_vals),
+            }
+
+    if adds_vals:
+        positive_adds = [v for v in adds_vals if v > 0]
+        if positive_adds:
+            mu, sigma = _lognormal_params(
+                positive_adds, robust=True)
+            profile["total_additions"] = {
+                "type": "lognormal",
+                "mu": mu, "sigma": sigma,
+                "max_val": max(adds_vals),
+            }
+
+    if dels:
+        positive_dels = [v for v in dels if v > 0]
+        if positive_dels:
+            mu, sigma = _lognormal_params(
+                positive_dels, robust=True)
+            profile["total_deletions"] = {
+                "type": "lognormal",
+                "mu": mu, "sigma": sigma,
+                "max_val": max(dels),
+            }
 
     # --- Ratio-based: total_deletions = additions * ratio ---
     if all_sprints:
@@ -501,11 +537,28 @@ def auto_calibrate_personas(
         res_rates=res_rates,
         stalled_vals=stalled_vals,
         unreviewed_vals=unreviewed_vals,
+        issues_vals=issues,
+        adds_vals=adds,
         files_vals=files_vals,
         avg_pr_vals=avg_pr_vals,
         dels=dels,
         all_sprints=all_sprints,
     )
+
+    # Empirical pools for hard-to-fit metrics (multi-repo mixtures).
+    rates_profile["empirical"] = {
+        "total_issues": issues,
+        "unique_authors": authors,
+        "issue_resolution_rate": res_rates,
+        "pr_merge_rate": merge_rates,
+        "stalled_issues": stalled_vals,
+        "total_additions": adds,
+        "total_deletions": dels,
+        "files_changed": files_vals,
+        "total_code_changes": _vals("total_code_changes"),
+        "avg_pr_size": avg_pr_vals,
+        "code_concentration": _vals("code_concentration"),
+    }
 
     personas = [
         SprintPersona(
@@ -638,15 +691,36 @@ class SyntheticSprintGenerator:
     def _generate_metrics(self, p: SprintPersona) -> dict:
         """Generate all 25 metrics matching real sprint schema."""
         rp = self.rates_profile  # calibrated distributions
+        empirical = rp.get("empirical", {})
+
+        def _emp(key, cast=float):
+            vals = empirical.get(key, [])
+            if vals:
+                return cast(random.choice(vals))
+            return None
 
         # --- Core counts ---
         total_commits = random.randint(*p.commit_range)
         total_prs = random.randint(*p.pr_range)
-        total_issues = random.randint(*p.issue_range)
-        authors = random.randint(*p.authors_range)
+        emp_issues = _emp("total_issues", int)
+        if emp_issues is not None:
+            total_issues = max(0, emp_issues)
+        elif rp and "total_issues" in rp:
+            total_issues = int(_sample_metric(rp["total_issues"]))
+        else:
+            total_issues = random.randint(*p.issue_range)
+
+        emp_authors = _emp("unique_authors", int)
+        if emp_authors is not None:
+            authors = max(0, emp_authors)
+        else:
+            authors = random.randint(*p.authors_range)
 
         # --- Resolution / merge rates (distribution-aware) ---
-        if rp and "issue_resolution_rate" in rp and total_issues > 0:
+        emp_issue_res = _emp("issue_resolution_rate", float)
+        if emp_issue_res is not None and total_issues > 0:
+            issue_resolution = max(0.0, min(1.0, emp_issue_res))
+        elif rp and "issue_resolution_rate" in rp and total_issues > 0:
             issue_resolution = _sample_metric(
                 rp["issue_resolution_rate"])
         elif total_issues > 0:
@@ -654,7 +728,10 @@ class SyntheticSprintGenerator:
         else:
             issue_resolution = 0
 
-        if rp and "pr_merge_rate" in rp and total_prs > 0:
+        emp_pr_merge = _emp("pr_merge_rate", float)
+        if emp_pr_merge is not None and total_prs > 0:
+            pr_merge = max(0.0, min(1.0, emp_pr_merge))
+        elif rp and "pr_merge_rate" in rp and total_prs > 0:
             pr_merge = _sample_metric(
                 rp["pr_merge_rate"])
         elif total_prs > 0:
@@ -665,47 +742,106 @@ class SyntheticSprintGenerator:
         closed_issues = int(total_issues * issue_resolution)
         merged_prs = int(total_prs * pr_merge)
 
-        # --- Code churn ---
-        total_additions = random.randint(*p.additions_range)
-        if rp and "deletion_ratio" in rp:
+        # --- Commit-diff level churn (calibrated independently) ---
+        emp_adds = _emp("total_additions", int)
+        if emp_adds is not None:
+            total_additions = max(0, emp_adds)
+        elif rp and "total_additions" in rp:
+            total_additions = max(
+                0, int(_sample_metric(rp["total_additions"])))
+        else:
+            total_additions = random.randint(*p.additions_range)
+
+        emp_dels = _emp("total_deletions", int)
+        if emp_dels is not None:
+            total_deletions = max(0, emp_dels)
+        elif rp and "total_deletions" in rp:
+            total_deletions = max(
+                0, int(_sample_metric(rp["total_deletions"])))
+        elif rp and "deletion_ratio" in rp:
             dr = _sample_metric(rp["deletion_ratio"])
             total_deletions = max(1, int(total_additions * dr))
         else:
             del_ratio = random.uniform(*p.deletion_ratio)
             total_deletions = int(total_additions * del_ratio)
-        total_code_changes = total_additions + total_deletions
 
-        # Files changed (direct lognormal from calibration)
-        if rp and "files_changed" in rp:
+        # --- PR-first generation to mirror real feature extraction ---
+        emp_total_changes = _emp("total_code_changes", int)
+        if emp_total_changes is not None:
+            target_code_changes = max(0, emp_total_changes)
+        else:
+            target_code_changes = max(0, total_additions + total_deletions)
+
+        if total_prs > 0:
+            emp_avg_pr = _emp("avg_pr_size", int)
+            if emp_avg_pr is not None:
+                base_size = max(1, emp_avg_pr)
+            elif rp and "avg_pr_size" in rp:
+                base_size = max(
+                    1, int(_sample_metric(rp["avg_pr_size"])))
+            else:
+                base_size = max(1, target_code_changes // total_prs)
+
+            pr_changes = [
+                max(1, int(random.lognormvariate(
+                    math.log(max(1, base_size)), 0.55)))
+                for _ in range(total_prs)
+            ]
+            raw_sum = sum(pr_changes)
+            if raw_sum > 0 and target_code_changes > 0:
+                scale = target_code_changes / raw_sum
+                pr_changes = [
+                    max(1, int(v * scale))
+                    for v in pr_changes
+                ]
+
+            total_code_changes = sum(pr_changes)
+            avg_pr_size = int(total_code_changes / total_prs)
+
+            emp_concentration = _emp("code_concentration", float)
+            if emp_concentration is not None:
+                concentration = max(0.0, min(1.0, emp_concentration))
+            else:
+                pr_changes_sorted = sorted(
+                    pr_changes, reverse=True)
+                top_2 = pr_changes_sorted[0] + (
+                    pr_changes_sorted[1]
+                    if len(pr_changes_sorted) > 1 else 0
+                )
+                concentration = (
+                    top_2 / total_code_changes
+                    if total_code_changes > 0 else 0
+                )
+        else:
+            total_code_changes = 0
+            avg_pr_size = 0
+            concentration = 0.0
+
+        # Files changed stays a commit-diff metric
+        emp_files = _emp("files_changed", int)
+        if emp_files is not None:
+            files_changed = max(0, emp_files)
+        elif rp and "files_changed" in rp:
             files_changed = max(
-                1, int(_sample_metric(rp["files_changed"])))
+                0, int(_sample_metric(rp["files_changed"])))
         else:
             files_per_k = random.randint(
                 *p.files_per_1k_changes)
-            files_changed = max(1, int(
-                total_code_changes * files_per_k / 1000))
+            commit_diff_changes = (
+                total_additions + total_deletions)
+            files_changed = int(
+                commit_diff_changes * files_per_k / 1000
+            ) if commit_diff_changes > 0 else 0
 
-        # PR-level code changes
         code_changes = total_code_changes
-        if rp and "avg_pr_size" in rp:
-            avg_pr_size = max(
-                1, int(_sample_metric(rp["avg_pr_size"])))
-        else:
-            avg_pr_size = (
-                code_changes // max(1, total_prs))
-
-        # Code concentration
-        if total_prs >= 2:
-            concentration = random.uniform(0.3, 0.9)
-        elif total_prs == 1:
-            concentration = 1.0
-        else:
-            concentration = 0.0
 
         # --- Risk indicators (distribution-aware) ---
         open_issues = total_issues - closed_issues
 
-        if (rp and rp.get("stalled_issues", {}).get("type")
+        emp_stalled = _emp("stalled_issues", int)
+        if emp_stalled is not None:
+            stalled = min(max(0, emp_stalled), open_issues)
+        elif (rp and rp.get("stalled_issues", {}).get("type")
                 == "use_open_issues"):
             stalled = open_issues
         elif rp and "stalled_issues" in rp:
