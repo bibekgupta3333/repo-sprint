@@ -92,37 +92,35 @@ class LocalScraper:
 
         if not offline:
             if verbose:
-                print("\n--- GitHub API: Issues & PRs ---")
+                print("\n--- GitHub API: Issues & PRs (batch fetch) ---")
 
             try:
-                api_issues = self.api.get_issues(owner, repo, limit=issues_limit)
+                api_issues, api_prs = self.api.get_issues_and_prs(
+                    owner, repo,
+                    issues_limit=issues_limit,
+                    prs_limit=prs_limit,
+                )
                 if verbose:
                     print(f"  API issues fetched: {len(api_issues)}")
-                # API issues have richer data (title, body, labels)
+                    print(f"  API PRs fetched: {len(api_prs)}")
+
                 # Merge: API issues take priority, local fill gaps
                 api_issue_nums = {i["number"] for i in api_issues}
-                # Keep API issues + local-only issues not in API
                 issues = api_issues + [
                     i for i in local_issues
                     if i["number"] not in api_issue_nums
                 ]
-            except Exception as e:
-                print(f"  Warning: Could not fetch issues via API: {e}")
-                print(f"  Using {len(local_issues)} issues from commit trailers")
 
-            try:
-                api_prs = self.api.get_prs(owner, repo, limit=prs_limit)
-                if verbose:
-                    print(f"  API PRs fetched: {len(api_prs)}")
-                # API PRs have richer data; local PRs fill in older/merged CLs
+                # Merge: API PRs take priority, local fill gaps
                 api_pr_nums = {p["number"] for p in api_prs}
                 prs = api_prs + [
                     p for p in local_prs
                     if p["number"] not in api_pr_nums
                 ]
             except Exception as e:
-                print(f"  Warning: Could not fetch PRs via API: {e}")
-                print(f"  Using {len(local_prs)} PRs/CLs from commit trailers")
+                print(f"  Warning: Could not fetch issues/PRs via API: {e}")
+                print(f"  Using {len(local_issues)} issues, "
+                      f"{len(local_prs)} PRs from commit trailers")
 
             # Link issues to PRs using closing keywords
             link_issues_to_pull_requests(issues, prs)

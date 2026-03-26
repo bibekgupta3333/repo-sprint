@@ -1,10 +1,11 @@
 """Core scraper module."""
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Tuple
 import json
 import os
 import re
+import time
 import requests
 
 
@@ -69,6 +70,38 @@ def parse_pr(pr_data: dict) -> dict:
     }
 
 
+def parse_pr_from_issue(item: dict) -> dict:
+    """Parse PR data from the ``/issues`` endpoint response.
+
+    The ``/issues`` endpoint includes a ``pull_request`` sub-object with
+    ``merged_at``.  ``additions``/``deletions`` are not available and
+    default to 0.
+    """
+    body = item.get('body')
+    body_text = body[:500] if body else None
+    pr_sub = item.get('pull_request', {})
+
+    return {
+        'number': item['number'],
+        'title': item['title'],
+        'state': item['state'],
+        'created_at': item['created_at'],
+        'updated_at': item['updated_at'],
+        'merged_at': pr_sub.get('merged_at'),
+        'closed_at': item.get('closed_at'),
+        'author': parse_author(item.get('user')),
+        'url': item['html_url'],
+        'labels': [
+            label['name'] for label in item.get('labels', [])
+        ],
+        'body': body_text,
+        'additions': 0,
+        'deletions': 0,
+        'commits': [],
+        'file_diffs': [],
+    }
+
+
 def parse_commit(commit_data: dict) -> dict:
     """Parse commit from GitHub API."""
     commit_info = commit_data.get('commit', {})
@@ -92,47 +125,186 @@ _ISSUE_LINK_PATTERN = re.compile(
 )
 
 
-def link_issues_to_pull_requests(issues: List[dict], prs: List[dict]) -> None:
-    """Populate issue['related_prs'] with PR numbers that reference the issue."""
+def link_issues_to_pull_requests(
+    issues: List[dict], prs: List[dict],
+) -> None:
+    """Populate ``issue['related_prs']`` via closing keywords.
+
+    Uses a two-pass O(issues + PRs) approach:
+      1. Scan every PR's title+body once → build a dict
+         mapping referenced issue numbers to PR numbers.
+      2. For each issue, look up the dict.
+
+    This avoids the previous O(issues × PRs) nested loop
+    that was ~3.5 billion iterations for golang/go.
+    """
+    # Pass 1: PR text → extract referenced issue numbers
+    issue_to_prs: dict = {}  # issue_num → set of PR nums
+    for pr in prs:
+        text = f"{pr.get('title', '')}\n{pr.get('body') or ''}"
+        pr_num = pr['number']
+        for match in _ISSUE_LINK_PATTERN.finditer(text):
+            ref = int(match.group(1))
+            if ref not in issue_to_prs:
+                issue_to_prs[ref] = set()
+            issue_to_prs[ref].add(pr_num)
+
+    # Pass 2: assign to each issue
     for issue in issues:
-        inum = issue['number']
-        related: List[int] = []
-        for pr in prs:
-            text = f"{pr.get('title', '')}\n{pr.get('body') or ''}"
-            for match in _ISSUE_LINK_PATTERN.finditer(text):
-                if int(match.group(1)) == inum:
-                    related.append(pr['number'])
-                    break
-        issue['related_prs'] = sorted(set(related))
+        linked = issue_to_prs.get(issue['number'])
+        issue['related_prs'] = sorted(linked) if linked else []
+
+
+# GitHub REST API limits page-based pagination to 1000 results
+# (10 pages × 100 per_page).  This constant caps the inner loop.
+_MAX_PAGES_PER_WINDOW = 10
 
 
 class Scraper:
-    """GitHub API scraper."""
+    """GitHub API scraper with rate-limit resilience."""
 
     BASE_URL = "https://api.github.com"
 
-    def __init__(self):
-        """Initialize scraper."""
+    def __init__(
+        self,
+        throttle_delay: float = 0.1,
+        max_retries: int = 3,
+    ):
+        """Initialize scraper.
+
+        Args:
+            throttle_delay: Seconds to wait between successive
+                API calls (prevents bursting into rate limits).
+            max_retries: Number of times to retry on 429/403
+                rate-limit errors before giving up.
+        """
         self.session = requests.Session()
         self.session.headers.update({
             'Accept': 'application/vnd.github.v3+json',
-            'User-Agent': 'ResearchBot/1.0'
+            'User-Agent': 'ResearchBot/1.0',
         })
-        token = os.environ.get('GITHUB_TOKEN') or os.environ.get('GH_TOKEN')
+        self.throttle_delay = throttle_delay
+        self.max_retries = max_retries
+        self._last_request_time: float = 0.0
+
+        token = (
+            os.environ.get('GITHUB_TOKEN')
+            or os.environ.get('GH_TOKEN')
+        )
         if token:
-            self.session.headers['Authorization'] = f'token {token}'
+            self.session.headers[
+                'Authorization'] = f'token {token}'
+            print("  Using GITHUB_TOKEN "
+                  "(5,000 requests/hr)")
+        else:
+            print("  Warning: No GITHUB_TOKEN set — "
+                  "rate limit is 60 requests/hr. "
+                  "Set GITHUB_TOKEN or GH_TOKEN "
+                  "for 5,000/hr.")
+
+    # ---------------------------------------------------------- #
+    #  Throttled + retrying HTTP GET                              #
+    # ---------------------------------------------------------- #
+
+    def _throttle(self):
+        """Enforce minimum delay between requests."""
+        elapsed = time.time() - self._last_request_time
+        if elapsed < self.throttle_delay:
+            time.sleep(self.throttle_delay - elapsed)
+
+    @staticmethod
+    def _rate_limit_wait(response) -> float:
+        """Compute how long to wait from rate-limit headers.
+
+        GitHub sends either ``Retry-After`` (seconds) or
+        ``x-ratelimit-reset`` (UTC epoch) on 429/403.
+        """
+        retry_after = response.headers.get('Retry-After')
+        if retry_after:
+            try:
+                return max(float(retry_after), 1.0)
+            except ValueError:
+                pass
+
+        reset_epoch = response.headers.get(
+            'x-ratelimit-reset')
+        if reset_epoch:
+            try:
+                wait = float(reset_epoch) - time.time()
+                return max(wait, 1.0)
+            except ValueError:
+                pass
+
+        return 0.0  # no header found
 
     def get(self, url: str, params: dict = None):
-        """Make GET request."""
-        try:
-            response = self.session.get(url, params=params, timeout=10)
-            if response.status_code in [404, 500]:
+        """Make GET request with rate-limit retry.
+
+        On 429 or 403 (rate limit), the method reads
+        GitHub's ``Retry-After`` / ``x-ratelimit-reset``
+        headers and sleeps accordingly.  If no header is
+        present it uses exponential backoff (2 / 4 / 8 s).
+        """
+        for attempt in range(self.max_retries + 1):
+            self._throttle()
+            try:
+                response = self.session.get(
+                    url, params=params, timeout=30)
+                self._last_request_time = time.time()
+
+                if response.status_code in [404, 500]:
+                    return None
+
+                # ---- Rate-limit handling ----
+                if response.status_code in [429, 403]:
+                    remaining = response.headers.get(
+                        'x-ratelimit-remaining', '')
+                    is_rate_limit = (
+                        response.status_code == 429
+                        or remaining == '0'
+                    )
+                    if is_rate_limit:
+                        wait = self._rate_limit_wait(
+                            response)
+                        if wait <= 0:
+                            # Exponential backoff fallback
+                            wait = 2 ** (attempt + 1)
+                        if attempt < self.max_retries:
+                            print(
+                                f"  Rate limited — "
+                                f"waiting {wait:.0f}s "
+                                f"(retry "
+                                f"{attempt + 1}/"
+                                f"{self.max_retries})")
+                            time.sleep(wait)
+                            continue
+                        # Final attempt exhausted
+                        print(
+                            "  Rate limit: retries "
+                            "exhausted, skipping")
+                        return None
+
+                # ---- 422: pagination limit ----
+                if response.status_code == 422:
+                    return None
+
+                response.raise_for_status()
+                return response.json()
+
+            except requests.exceptions.ConnectionError:
+                if attempt < self.max_retries:
+                    wait = 2 ** (attempt + 1)
+                    print(f"  Connection error — "
+                          f"retrying in {wait}s")
+                    time.sleep(wait)
+                    continue
+                print("  Connection error: "
+                      "retries exhausted")
                 return None
-            response.raise_for_status()
-            return response.json()
-        except Exception as e:
-            print(f"  Request failed: {e}")
-            return None
+            except Exception as e:
+                print(f"  Request failed: {e}")
+                return None
+        return None
 
     def get_issues(self, owner: str, repo: str, limit: int = 50) -> List[dict]:
         """Fetch issues."""
@@ -197,6 +369,159 @@ class Scraper:
             page += 1
 
         return prs
+
+    def get_issues_and_prs(
+        self,
+        owner: str,
+        repo: str,
+        issues_limit: int = 50,
+        prs_limit: int = 50,
+    ) -> Tuple[List[dict], List[dict]]:
+        """Fetch issues and PRs via the ``/issues`` endpoint.
+
+        GitHub limits page-based pagination to 1000 results
+        (10 pages × 100 per_page).  To retrieve more, this method
+        uses **date-based windowing**: it sorts by ``updated``
+        ascending and advances a ``since`` cursor each time a
+        10-page window is exhausted, effectively removing the
+        1000-item ceiling.
+
+        Phase 1 — ``/issues`` (returns both issues and PRs):
+            Collects parsed issues and raw PR items.
+
+        Phase 2 — ``/pulls`` (up to 1000 most-recent PRs):
+            Enriches PR items with full metadata
+            (``additions``, ``deletions``).  Any PRs beyond the
+            ``/pulls`` window are parsed from the ``/issues`` data
+            (``merged_at`` is available; ``additions``/``deletions``
+            default to 0).
+
+        Returns:
+            ``(issues, prs)`` tuple.
+        """
+        issues: List[dict] = []
+        pr_raw: dict = {}          # number → raw /issues item
+        seen_numbers: set = set()  # dedup across windows
+        since_cursor: Optional[str] = None
+
+        # ---- Phase 1: /issues with date-window pagination ----
+        while (len(issues) < issues_limit
+               or len(pr_raw) < prs_limit):
+            page = 1
+            last_updated: Optional[str] = None
+            new_in_window = 0
+
+            while page <= _MAX_PAGES_PER_WINDOW:
+                both_full = (len(issues) >= issues_limit
+                             and len(pr_raw) >= prs_limit)
+                if both_full:
+                    break
+
+                url = (f"{self.BASE_URL}/repos/"
+                       f"{owner}/{repo}/issues")
+                params: dict = {
+                    'state': 'all',
+                    'per_page': 100,
+                    'page': page,
+                    'sort': 'updated',
+                    'direction': 'asc',
+                }
+                if since_cursor:
+                    params['since'] = since_cursor
+
+                data = self.get(url, params)
+                if not data:
+                    break
+
+                for item in data:
+                    num = item['number']
+                    if num in seen_numbers:
+                        continue
+                    seen_numbers.add(num)
+                    new_in_window += 1
+                    last_updated = item.get('updated_at')
+
+                    if 'pull_request' in item:
+                        if len(pr_raw) < prs_limit:
+                            pr_raw[num] = item
+                    else:
+                        if len(issues) < issues_limit:
+                            try:
+                                issues.append(
+                                    parse_issue(item))
+                            except Exception as e:
+                                print("  Warning: Failed "
+                                      f"to parse issue: {e}")
+
+                if len(data) < 100:
+                    # Last page — no more items in this window.
+                    last_updated = None
+                    break
+                page += 1
+
+            # Decide whether to open a new window.
+            if last_updated is None:
+                break   # API exhausted or last page was partial
+            if new_in_window == 0:
+                break   # No new items → stuck, avoid loop
+            since_cursor = last_updated
+            print(
+                f"    ... {len(issues)} issues, "
+                f"{len(pr_raw)} PRs so far "
+                f"(windowing past {since_cursor})"
+            )
+
+        # ---- Phase 2: enrich PRs from /pulls -----------------
+        prs: List[dict] = []
+        enriched: set = set()
+
+        if pr_raw:
+            needed = set(pr_raw.keys())
+            prs_page = 1
+            while (len(enriched) < len(needed)
+                   and prs_page <= _MAX_PAGES_PER_WINDOW):
+                url = (f"{self.BASE_URL}/repos/"
+                       f"{owner}/{repo}/pulls")
+                data = self.get(url, {
+                    'state': 'all',
+                    'per_page': 100,
+                    'page': prs_page,
+                })
+                if not data:
+                    break
+
+                for item in data:
+                    num = item['number']
+                    if num in needed and num not in enriched:
+                        try:
+                            prs.append(parse_pr(item))
+                            enriched.add(num)
+                        except Exception as e:
+                            print("  Warning: Failed "
+                                  f"to parse PR: {e}")
+
+                if len(data) < 100:
+                    break
+                prs_page += 1
+
+            # Fallback: parse remaining PRs from /issues data.
+            missing = needed - enriched
+            if missing:
+                print(
+                    f"  Note: {len(missing)} PR(s) enriched "
+                    "from /issues data "
+                    "(missing additions/deletions)"
+                )
+                for num in missing:
+                    raw = pr_raw[num]
+                    try:
+                        prs.append(
+                            parse_pr_from_issue(raw))
+                    except Exception as e:
+                        print("  Warning: Failed to parse "
+                              f"PR #{num}: {e}")
+
+        return issues, prs
 
     def get_commits(
         self,

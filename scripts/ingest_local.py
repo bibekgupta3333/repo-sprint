@@ -20,6 +20,20 @@ from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+# Load .env file (for GITHUB_TOKEN, etc.)
+try:
+    from dotenv import load_dotenv
+    _proj_root = Path(__file__).parent.parent
+    for _env_name in ('.env', '.env.local'):
+        _env_path = _proj_root / _env_name
+        try:
+            if _env_path.exists():
+                load_dotenv(_env_path)
+        except (PermissionError, OSError):
+            pass
+except ImportError:
+    pass
+
 from scripts._core import Analyzer, Processor
 from scripts._core.local_scraper import LocalScraper
 from src.data.preprocessor import SprintPreprocessor
@@ -229,6 +243,54 @@ def ingest_local(
 #  Helpers                                                                    #
 # --------------------------------------------------------------------------- #
 
+def _build_pr_commit_map(
+    repo_data: dict,
+) -> dict:
+    """Map PR numbers to local commits and diffs.
+
+    Parses PR numbers from commit messages using common
+    GitHub patterns:
+      - ``(#123)`` — squash-merge default
+      - ``Merge pull request #123 from ...``
+
+    Returns ``{pr_number: {'commits': [...], 'diffs': [...]}}``
+    """
+    import re
+    # Patterns that reference a PR number in commit messages
+    _PR_REF = re.compile(
+        r'\(#(\d+)\)'
+        r'|Merge pull request #(\d+)',
+    )
+
+    # Build SHA → diff lookup
+    diff_by_sha: dict = {}
+    for d in repo_data.get("commit_diffs", []):
+        short = (d.get("sha") or "")[:7]
+        if short:
+            diff_by_sha[short] = d
+
+    pr_map: dict = {}  # pr_num → {commits, diffs}
+    for commit in repo_data.get("commits", []):
+        msg = commit.get("message", "")
+        for m in _PR_REF.finditer(msg):
+            pr_num = int(m.group(1) or m.group(2))
+            if pr_num not in pr_map:
+                pr_map[pr_num] = {
+                    "commits": [],
+                    "diffs": [],
+                }
+            pr_map[pr_num]["commits"].append({
+                "sha": commit.get("sha", ""),
+                "message": msg[:200],
+            })
+            sha_short = (commit.get("sha") or "")[:7]
+            diff = diff_by_sha.get(sha_short)
+            if diff:
+                pr_map[pr_num]["diffs"].append(diff)
+
+    return pr_map
+
+
 def _enrich_prs_from_api(
     owner: str,
     repo: str,
@@ -237,41 +299,53 @@ def _enrich_prs_from_api(
     pr_diff_limit: int = 20,
     verbose: bool = True,
 ):
-    """Enrich PR entries with commits and file lists from the API.
+    """Enrich PR entries with commits/file_diffs.
 
-    This only touches the PR metadata (which comes from the API anyway) —
-    commit diffs are already extracted locally.
+    **Fully local** strategy — zero API calls:
+      1. Parse PR numbers from commit messages
+         (e.g. ``(#123)``, ``Merge pull request #123``).
+      2. Match PRs to local commits and diffs.
+      3. Unmatched PRs get empty commits/file_diffs
+         (their metadata from the API is still preserved).
     """
     prs = repo_data.get("prs", [])
-    if not prs or pr_diff_limit <= 0:
-        for pr in prs:
-            pr.setdefault("commits", [])
-            pr.setdefault("file_diffs", [])
+    if not prs:
         return
 
-    head = prs[:pr_diff_limit]
-    tail = prs[pr_diff_limit:]
+    # --- Build local PR → commits/diffs mapping ---
+    pr_map = _build_pr_commit_map(repo_data)
+    local_matched = 0
+    unmatched = 0
 
-    if verbose:
-        print(f"\n  Enriching {len(head)} PR(s) with commits/files from API ...")
-
-    for pr in head:
+    for pr in prs:
         num = pr["number"]
-        try:
-            pr["commits"] = api_scraper.get_pull_commits(owner, repo, num)
-        except Exception:
+        local = pr_map.get(num)
+        if local and local["commits"]:
+            pr["commits"] = local["commits"]
+            # Merge file_diffs from all matching commits
+            all_files: list = []
+            total_add = 0
+            total_del = 0
+            for d in local["diffs"]:
+                all_files.extend(d.get("file_diffs", []))
+                total_add += d.get("total_additions", 0)
+                total_del += d.get("total_deletions", 0)
+            pr["file_diffs"] = all_files
+            # Update additions/deletions if they were 0
+            if pr.get("additions", 0) == 0:
+                pr["additions"] = total_add
+            if pr.get("deletions", 0) == 0:
+                pr["deletions"] = total_del
+            local_matched += 1
+        else:
             pr.setdefault("commits", [])
-        try:
-            pr["file_diffs"] = api_scraper.get_pull_files(owner, repo, num)
-        except Exception:
             pr.setdefault("file_diffs", [])
-
-    for pr in tail:
-        pr.setdefault("commits", [])
-        pr.setdefault("file_diffs", [])
+            unmatched += 1
 
     if verbose:
-        print(f"  Enriched {len(head)} PRs with commits+files")
+        print(f"\n  PR enrichment (local only): "
+              f"{local_matched} matched, "
+              f"{unmatched} unmatched")
 
 
 def _print_code_summary(repo_data: dict):
@@ -327,10 +401,10 @@ Options:
   --skip-local-issues Skip extraction of issue refs from commit trailers
   --quiet             Suppress progress output
   --output DIR        Output directory (default: data)
-  --issues-limit N    Max issues to fetch from API (default: 50)
-  --prs-limit N       Max PRs to fetch from API (default: 50)
+  --issues-limit N    Max issues to fetch from API (default: 50, 0 = no limit)
+  --prs-limit N       Max PRs to fetch from API (default: 50, 0 = no limit)
   --commits-limit N   Max commits to extract locally (default: all)
-  --pr-diff-limit N   Max PRs to enrich with commits/files (default: 20)
+  --pr-diff-limit N   Max PRs to enrich with commits/files (default: 20, 0 = no limit)
   --since ISO8601     Include commits on/after this timestamp
   --until ISO8601     Include commits on/before this timestamp
   --days N            Include commits from last N days
@@ -392,6 +466,13 @@ def main():
         print(f"ERROR: {e}")
         sys.exit(1)
 
+    # 0 means "no limit" — use a large sentinel so pagination loops
+    # continue until the API is exhausted.
+    _NO_LIMIT = 999_999
+    issues_limit = args.issues_limit if args.issues_limit else _NO_LIMIT
+    prs_limit = args.prs_limit if args.prs_limit else _NO_LIMIT
+    pr_diff_limit = args.pr_diff_limit if args.pr_diff_limit else _NO_LIMIT
+
     ingest_local(
         repo_path=args.repo_path,
         owner=args.owner,
@@ -400,12 +481,12 @@ def main():
         fetch_diffs=args.diffs,
         offline=args.offline,
         verbose=not args.quiet,
-        issues_limit=args.issues_limit,
-        prs_limit=args.prs_limit,
+        issues_limit=issues_limit,
+        prs_limit=prs_limit,
         commits_limit=args.commits_limit,
         commit_since=commit_since,
         commit_until=commit_until,
-        pr_diff_limit=args.pr_diff_limit,
+        pr_diff_limit=pr_diff_limit,
         skip_local_prs=args.skip_local_prs,
         skip_local_issues=args.skip_local_issues,
     )

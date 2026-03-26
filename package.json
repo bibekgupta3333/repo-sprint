@@ -23,16 +23,20 @@
     "local:golang:api:14d": "python scripts/ingest_local.py repos/golang/go --owner golang --repo go --diffs --days 14 --skip-local-prs --skip-local-issues --issues-limit 100 --prs-limit 100 --pr-diff-limit 50",
     "local:golang:api:full": "python scripts/ingest_local.py repos/golang/go --owner golang --repo go --diffs --skip-local-prs --skip-local-issues --issues-limit 500 --prs-limit 500 --pr-diff-limit 200",
 
-    "local:golang:hybrid": "python scripts/ingest_local.py repos/golang/go --owner golang --repo go --diffs --issues-limit 100 --prs-limit 100 --pr-diff-limit 50",
-    "local:golang:hybrid:14d": "python scripts/ingest_local.py repos/golang/go --owner golang --repo go --diffs --days 14 --issues-limit 100 --prs-limit 100 --pr-diff-limit 50",
-    "local:golang:hybrid:30d": "python scripts/ingest_local.py repos/golang/go --owner golang --repo go --diffs --days 30 --issues-limit 200 --prs-limit 200 --pr-diff-limit 100",
-    "local:golang:hybrid:full": "python scripts/ingest_local.py repos/golang/go --owner golang --repo go --diffs --issues-limit 500 --prs-limit 500 --pr-diff-limit 200",
+    "local:golang:hybrid": "python scripts/ingest_local.py repos/golang/go --owner golang --repo go --diffs --issues-limit 0 --prs-limit 0 --pr-diff-limit 0",
+    "local:golang:hybrid:14d": "python scripts/ingest_local.py repos/golang/go --owner golang --repo go --diffs --days 14 --issues-limit 0 --prs-limit 0 --pr-diff-limit 0",
+    "local:golang:hybrid:30d": "python scripts/ingest_local.py repos/golang/go --owner golang --repo go --diffs --days 30 --issues-limit 0 --prs-limit 0 --pr-diff-limit 0",
+    "local:golang:hybrid:full": "python scripts/ingest_local.py repos/golang/go --owner golang --repo go --diffs --issues-limit 0 --prs-limit 0 --pr-diff-limit 0",
 
     "local:golang:offline": "python scripts/ingest_local.py repos/golang/go --owner golang --repo go --diffs --offline",
     "local:golang:offline:14d": "python scripts/ingest_local.py repos/golang/go --owner golang --repo go --diffs --offline --days 14",
     "local:golang:offline:no-pr-issue": "python scripts/ingest_local.py repos/golang/go --owner golang --repo go --diffs --offline --skip-local-prs --skip-local-issues",
     "local:golang:offline:pr-only": "python scripts/ingest_local.py repos/golang/go --owner golang --repo go --diffs --offline --skip-local-issues",
     "local:golang:offline:issue-only": "python scripts/ingest_local.py repos/golang/go --owner golang --repo go --diffs --offline --skip-local-prs",
+
+    "local:anythingllm:hybrid": "python scripts/ingest_local.py repos/Mintplex-Labs/anything-llm --owner Mintplex-Labs --repo anything-llm --diffs --issues-limit 0 --prs-limit 0 --pr-diff-limit 0",
+    "local:anythingllm:hybrid:14d": "python scripts/ingest_local.py repos/Mintplex-Labs/anything-llm --owner Mintplex-Labs --repo anything-llm --diffs --days 14 --issues-limit 0 --prs-limit 0 --pr-diff-limit 0",
+    "local:anythingllm:hybrid:30d": "python scripts/ingest_local.py repos/Mintplex-Labs/anything-llm --owner Mintplex-Labs --repo anything-llm --diffs --days 30 --issues-limit 0 --prs-limit 0 --pr-diff-limit 0",
 
     "generate-synthetic": "python src/data/synthetic_generator.py --count 5000 --personas all",
     "generate-synthetic:startup": "python src/data/synthetic_generator.py --count 5000 --personas startup",
