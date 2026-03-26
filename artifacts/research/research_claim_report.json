@@ -1,0 +1,81 @@
+{
+  "mode": "strict",
+  "claim_ready": false,
+  "eligible_objectives": [
+    {
+      "objective": "objective_1_cross_repo_detection",
+      "passed": false,
+      "claim_eligible": true,
+      "details": {
+        "edge_count": 0,
+        "uses_local_repos": true,
+        "dataset_size": 2,
+        "eval_mode": "strict",
+        "is_simulated": false,
+        "uses_stub": false
+      }
+    },
+    {
+      "objective": "objective_3_cold_start_synthetic",
+      "passed": true,
+      "claim_eligible": true,
+      "details": {
+        "synthetic_count": 1000,
+        "validation_count": 8,
+        "realism_score": 1.0,
+        "dataset_size": 1,
+        "eval_mode": "strict",
+        "is_simulated": false,
+        "uses_stub": false
+      }
+    }
+  ],
+  "excluded_objectives": [
+    {
+      "objective": "objective_2_blocker_detection",
+      "reason": "simulated_or_stubbed_or_non_local"
+    },
+    {
+      "objective": "objective_4_lora_drift_adaptation",
+      "reason": "simulated_or_stubbed_or_non_local"
+    },
+    {
+      "objective": "objective_5_explainability_quality",
+      "reason": "simulated_or_stubbed_or_non_local"
+    }
+  ],
+  "acceptance_gates": [
+    {
+      "name": "strict_pipeline_fallback_rate_under_10_percent",
+      "passed": true,
+      "value": 0.0,
+      "threshold": 0.1
+    },
+    {
+      "name": "non_empty_objective_datasets_all_5",
+      "passed": true
+    },
+    {
+      "name": "cross_repo_benchmark_uses_local_repos",
+      "passed": true
+    },
+    {
+      "name": "synthetic_validation_has_non_zero_metrics",
+      "passed": true,
+      "value": 8
+    },
+    {
+      "name": "statistical_summary_present",
+      "passed": true
+    }
+  ],
+  "statistics": {
+    "objective_pass_rate": 0.8,
+    "objective_pass_rate_wilson_ci_95": {
+      "lower": 0.3755282641185388,
+      "upper": 0.9637768390302125,
+      "point_estimate": 0.8
+    },
+    "binomial_test_pvalue_vs_0_8": 0.6723199999999999
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "timestamp": "2026-03-26T12:23:50.668462",
+  "latency_seconds": 8.6927,
+  "f1_score": 1.0,
+  "parse_success_rate": 1.0,
+  "fallback_rate": 0.0,
+  "citation_quality": {
+    "total_citations": 0,
+    "non_empty_citations": 0,
+    "score": 0.0
+  },
+  "source_breakdown": {
+    "analysis": "llm",
+    "risk": "llm",
+    "recommendation": "llm"
+  },
+  "counts": {
+    "risks": 3,
+    "recommendations": 1,
+    "errors": 0,
+    "execution_logs": 13
+  }
+}
