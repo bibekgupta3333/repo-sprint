@@ -40,7 +40,192 @@
 5. **Adaptability**: LoRA-based fine-tuning for startup-specific patterns
 6. **Lightweight**: Optimized for 2-3 repository workloads
 
-### Agent Hierarchy
+---
+
+## Research Objective Coverage Analysis
+
+### 📊 Coverage Summary
+
+| Objective | Coverage | Status | Key Agents |
+|-----------|----------|--------|-----------|
+| **Obj 1: Cross-Repo Dependency Intelligence** | 50% | 🟡 Partial | Data Collector, Sprint Analyzer |
+| **Obj 2: Explainable Blocker Detection + RAG** | 95% | ✅ Strong | Embedding Agent, Evidence Collector, Explainer |
+| **Obj 3: Synthetic Data Generation** | 40% | 🟡 Partial | None directly (external pipeline) |
+| **Obj 4: LoRA Fine-Tuning Pipeline** | 60% | 🟡 Partial | LLM Reasoning Agent (deployment only) |
+| **Obj 5: Laptop-Scale Deployment** | 90% | ✅ Strong | All agents (Docker Compose, 16GB total) |
+
+---
+
+### ✅ Well-Addressed Objectives
+
+#### **Objective 2: Explainable Blocker Detection with RAG (95% coverage)**
+
+**Why it works:**
+- **Embedding Agent**: Converts sprint context → Vector embeddings → ChromaDB retrieval
+- **Evidence Collector Sub-Agent**: Retrieves top-5 historical similar sprints with documented outcomes
+- **Narrative Generator Sub-Agent**: Generates evidence-backed explanations with GitHub citations
+- **Implementation**: Evidence grounding ensures every recommendation links to: commit hash, issue #, PR #, or historical precedent
+
+**Gaps**: None. This objective is fully instantiated in the agent workflow.
+
+---
+
+#### **Objective 5: Laptop-Scale Deployment (90% coverage)**
+
+**Why it works:**
+- **Model**: Llama-3-8B-Q4 (6GB RAM, quantized)
+- **Framework**: LangGraph (async, minimal overhead)
+- **Architecture**: Docker Compose with shared network (16GB total RAM across containers)
+  - Frontend: 512MB
+  - Backend API: 1GB
+  - ChromaDB: 3GB
+  - Ollama: 6GB
+  - PostgreSQL: 2GB
+  - Agents: 2GB
+- **Latency**: Sub-60s end-to-end (GitHub event → recommendation)
+
+**Gaps**: None. System designed from ground up for M4 Pro / 16GB constraint.
+
+---
+
+### 🟡 Partially-Addressed Objectives (Gaps Identified)
+
+#### **Objective 1: Cross-Repository Dependency Intelligence (50% coverage)**
+
+**What's Implemented:**
+- Data Collector fetches from 2-3 repos (issues, PRs, commits)
+- Sprint Analyzer computes sprint health per repo
+- Feature Engineering produces code metrics (imports, dependencies)
+
+**What's Missing:**
+- ❌ **No Dependency Graph Agent**: No agent explicitly models cross-repo dependencies
+- ❌ **No Impact Propagation Logic**: Cannot trace how delays in Repo A block downstream Repo B tasks
+- ❌ **No Cross-Repo Blocker Detection**: Risk assessment operates per-repo, not across repos
+- ❌ **No Visualization**: No dependency graph output
+
+**Example Gap:**
+```
+Current: Risk Assessment calculates "high stalled_issues in repo-A"
+Missing: "high stalled_issues in repo-A blocks Repo B's 3 dependent PRs, delaying milestone by 2 days"
+```
+
+**Required Addition:**
+Need a **Dependency Graph Agent** that:
+1. Parses code imports (Python `import`, Node `require`, Go `import`)
+2. Detects issue references across repos (`Repo-B#123 depends on Repo-A#456`)
+3. Models contributor communication patterns
+4. Predicts risk propagation using graph algorithms
+
+---
+
+#### **Objective 3: Synthetic Data Generation for Cold-Start (40% coverage)**
+
+**What's Implemented:**
+- Planning docs outline synthetic data strategy
+- Data loading in M5 baseline includes synthetic + real splits
+
+**What's Missing:**
+- ❌ **No Generation Agent**: No agent generates synthetic sprint scenarios
+- ❌ **No Validation Pipeline**: Cannot verify synthetic data matches GitHub distribution
+- ❌ **No Quality Metrics**: No KS-test, statistical similarity checks
+- ❌ **No Integration**: Synthetic data generation lives outside agent workflow
+
+**Example Gap:**
+```
+Current: Load pre-generated synthetic data from JSON
+Missing: Generate new scenarios on-demand, validate, and inject into vector store
+```
+
+**Required Addition:**
+Need a **Synthetic Data Generator Agent** that:
+1. Takes sprint profile (team size, velocity, issue density)
+2. Generates realistic scenarios (success, blocked, overloaded, delayed)
+3. Validates statistical properties (KS test p > 0.05)
+4. Stores results in vector DB for RAG retrieval
+
+---
+
+#### **Objective 4: Parameter-Efficient LoRA Adaptation (60% coverage)**
+
+**What's Implemented:**
+- LLM Reasoning Agent instantiates Llama-3-8B-Q4
+- System diagram shows LoRA adapters
+- Assumes per-project LoRA layers loaded
+
+**What's Missing:**
+- ❌ **No Training Orchestrator**: No agent manages LoRA fine-tuning
+- ❌ **No Continual Learning**: No mechanism for online adaptation without catastrophic forgetting
+- ❌ **No Adapter Management**: No versioning, merging, or selective activation
+- ❌ **No Evaluation Loop**: No validation that LoRA improves task-specific performance
+
+**Example Gap:**
+```
+Current: LLM Reasoning Agent loads pre-trained Llama-3-8B-Q4 + static LoRA
+Missing: Agent detects new project, initiates LoRA fine-tuning on <1K examples, validates F1 gain, merges adapter
+```
+
+**Required Addition:**
+Need a **LoRA Training Orchestrator Agent** that:
+1. Monitors inference performance per project
+2. Collects project-specific examples when F1 degradation detected
+3. Initiates parameter-efficient fine-tuning (LoRA rank=16)
+4. Validates improvement before merging into inference pipeline
+5. Maintains <500MB per-project adapter constraint
+
+---
+
+### 🔴 Missing Components (Not in Current Architecture)
+
+| Component | Purpose | Impact |
+|-----------|---------|--------|
+| **Dependency Graph Agent** | Model cross-repo dependencies & propagation | Blocks Objective 1 |
+| **Synthetic Data Generator Agent** | Generate cold-start scenarios | Blocks Objective 3 |
+| **LoRA Training Orchestrator** | Manage continual adaptation | Blocks Objective 4 |
+| **Validation Coordinator Agent** | QA synthetic data, evaluate models | Blocks Obj 3 & 4 |
+
+---
+
+### 🎯 Roadmap to Full Research Objective Coverage
+
+#### **Phase A: Add Dependency Graph Agent (1-2 weeks)**
+```
+Goal: Achieve Objective 1 = 90% coverage
+Steps:
+1. Parse code imports (static analysis)
+2. Extract issue cross-references (regex on issue body)
+3. Model contributor communication graph
+4. Implement risk propagation (BFS/DFS on dependency DAG)
+5. Output: dependency JSON + risk propagation matrix
+```
+
+#### **Phase B: Add Synthetic Data Generator (2-3 weeks)**
+```
+Goal: Achieve Objective 3 = 90% coverage
+Steps:
+1. LLM-based scenario generation (GPT-4 → Llama LoRA)
+2. Statistical validation (KS test, distribution matching)
+3. Integration with vector store (embed synthetic scenarios)
+4. Cold-start evaluation (F1 on new org with 7-day data)
+```
+
+#### **Phase C: Add LoRA Training Orchestrator (2-3 weeks)**
+```
+Goal: Achieve Objective 4 = 90% coverage
+Steps:
+1. Monitor per-project F1 drift
+2. Collect project-specific examples automatically
+3. Launch LoRA fine-tuning (LoRA rank=8, epochs=3)
+4. Validate on held-out project data
+5. Adapter versioning & rollback capability
+```
+
+---
+
+## Agent Hierarchy: Current & Proposed
+
+**Legend**: 
+- 🟢 **Solid lines & Full color** = Implemented & Production-ready
+- 🔴 **Dashed lines & Lighter color** = Proposed & Gap-filling (Phases A-C)
 
 ```mermaid
 graph TB
@@ -49,14 +234,21 @@ graph TB
     end
     
     subgraph "Layer 2: Data Acquisition"
-        DC[Data Collector Agent]
+        DC[✅ Data Collector Agent]
         DC_API[Sub: API Client]
         DC_CACHE[Sub: Cache Manager]
         DC_RATE[Sub: Rate Limiter]
     end
     
+    subgraph "Layer 2.5: Cross-Repo Intelligence [PROPOSED - Phase A]"
+        DG["🔴 Dependency Graph Agent<br/>(Gap: Obj 1)<br/>Imports, Issues, Contributors"]
+        DG_PARSE["Sub: Code Parser"]
+        DG_GRAPH["Sub: Graph Builder"]
+        DG_PROP["Sub: Risk Propagator"]
+    end
+    
     subgraph "Layer 3: Feature Engineering"
-        FE[Feature Engineering Agent]
+        FE[✅ Feature Engineering Agent]
         FE_CODE[Sub: Code Analyzer]
         FE_TEXT[Sub: Text Processor]
         FE_TEMP[Sub: Temporal Analyzer]
@@ -65,40 +257,58 @@ graph TB
         FE_CICD[Sub: CI/CD Analyzer]
     end
     
+    subgraph "Layer 3.5: Synthetic Data [PROPOSED - Phase B]"
+        SYN["🔴 Synthetic Data Generator<br/>(Gap: Obj 3)<br/>LLM Scenarios, Validation"]
+        SYN_GEN["Sub: Scenario Generator"]
+        SYN_VAL["Sub: Validator (KS-test)"]
+    end
+    
     subgraph "Layer 4: Embedding & Retrieval"
-        EMB[Embedding Agent]
+        EMB[✅ Embedding Agent]
         EMB_ENC[Sub: Encoder]
         EMB_STORE[Sub: Vector Store]
         EMB_RET[Sub: Retriever]
     end
     
     subgraph "Layer 5: LLM Reasoning"
-        LLM[LLM Reasoning Agent]
+        LLM[✅ LLM Reasoning Agent]
         LLM_PLAN[Sub: Planner]
         LLM_REASON[Sub: Reasoner]
         LLM_SYNTH[Sub: Synthesizer]
     end
     
     subgraph "Layer 6: Analysis"
-        SA[Sprint Analyzer]
+        SA[✅ Sprint Analyzer]
         SA_PRED[Sub: Predictor]
         SA_HEALTH[Sub: Health Scorer]
         
-        RA[Risk Assessor]
+        RA[✅ Risk Assessor]
         RA_DET[Sub: Detector]
         RA_SEVER[Sub: Severity Scorer]
     end
     
     subgraph "Layer 7: Output Generation"
-        REC[Recommender Agent]
+        REC[✅ Recommender Agent]
         REC_GEN[Sub: Rec Generator]
         REC_RANK[Sub: Ranker]
         
-        EXP[Explainer Agent]
+        EXP[✅ Explainer Agent]
         EXP_EVID[Sub: Evidence Collector]
         EXP_NARR[Sub: Narrative Generator]
     end
     
+    subgraph "Layer 8: Training & Validation [PROPOSED - Phase C]"
+        LORA["🔴 LoRA Training Orchestrator<br/>(Gap: Obj 4)<br/>Online Adaptation"]
+        LORA_TRAIN["Sub: Fine-Tuner"]
+        LORA_EVAL["Sub: Evaluator"]
+        LORA_ADAPT["Sub: Adapter Manager"]
+        
+        VAL["🔴 Validation Coordinator<br/>(Gap: Obj 3&4)<br/>QA Pipeline"]
+        VAL_STAT["Sub: Statistics Validator"]
+        VAL_PERF["Sub: Performance Validator"]
+    end
+    
+    %% IMPLEMENTED INFERENCE PIPELINE (solid lines)
     MASTER --> DC
     DC --> DC_API
     DC --> DC_CACHE
@@ -141,22 +351,62 @@ graph TB
     EXP --> EXP_EVID
     EXP --> EXP_NARR
     
-    classDef layer1 fill:#e9d5ff,stroke:#8b5cf6,color:#000
-    classDef layer2 fill:#dbeafe,stroke:#3b82f6,color:#000
-    classDef layer3 fill:#fef3c7,stroke:#f59e0b,color:#000
-    classDef layer4 fill:#d1fae5,stroke:#10b981,color:#000
-    classDef layer5 fill:#fed7aa,stroke:#ea580c,color:#000
-    classDef layer6 fill:#fecdd3,stroke:#f43f5e,color:#000
-    classDef layer7 fill:#e0e7ff,stroke:#6366f1,color:#000
+    %% PROPOSED AGENTS (dashed lines, phase insertions)
+    DC -.PROPOSED.-> DG
+    DG --> DG_PARSE
+    DG --> DG_GRAPH
+    DG --> DG_PROP
+    DG -.connects.-> SA
     
+    FE -.PROPOSED.-> SYN
+    SYN --> SYN_GEN
+    SYN --> SYN_VAL
+    SYN -.to vector store.-> EMB
+    
+    LLM -.PROPOSED.-> LORA
+    LORA --> LORA_TRAIN
+    LORA --> LORA_EVAL
+    LORA --> LORA_ADAPT
+    
+    SYN -.PROPOSED.-> VAL
+    LORA --> VAL
+    VAL --> VAL_STAT
+    VAL --> VAL_PERF
+    
+    %% STYLING
+    classDef implemented fill:#c6f6d5,stroke:#22543d,color:#000,stroke-width:2px
+    classDef proposed fill:#fed7d7,stroke:#742a2a,color:#000,stroke-width:2px,stroke-dasharray: 5 5
+    classDef sub fill:#edf2f7,stroke:#2d3748,color:#000
+    classDef layer1 fill:#e9d5ff,stroke:#8b5cf6,color:#000
+    classDef layer8 fill:#fce7f3,stroke:#be185d,color:#000
+    
+    class DC,FE,EMB,LLM,SA,RA,REC,EXP implemented
+    class DC_API,DC_CACHE,DC_RATE,FE_CODE,FE_TEXT,FE_TEMP,FE_GRAPH,FE_SENT,FE_CICD,EMB_ENC,EMB_STORE,EMB_RET,LLM_PLAN,LLM_REASON,LLM_SYNTH,SA_PRED,SA_HEALTH,RA_DET,RA_SEVER,REC_GEN,REC_RANK,EXP_EVID,EXP_NARR sub
+    class DG,SYN,LORA,VAL proposed
+    class DG_PARSE,DG_GRAPH,DG_PROP,SYN_GEN,SYN_VAL,LORA_TRAIN,LORA_EVAL,LORA_ADAPT,VAL_STAT,VAL_PERF sub
     class MASTER layer1
-    class DC,DC_API,DC_CACHE,DC_RATE layer2
-    class FE,FE_CODE,FE_TEXT,FE_TEMP,FE_GRAPH,FE_SENT,FE_CICD layer3
-    class EMB,EMB_ENC,EMB_STORE,EMB_RET layer4
-    class LLM,LLM_PLAN,LLM_REASON,LLM_SYNTH layer5
-    class SA,SA_PRED,SA_HEALTH,RA,RA_DET,RA_SEVER layer6
-    class REC,REC_GEN,REC_RANK,EXP,EXP_EVID,EXP_NARR layer7
+    class LORA,VAL layer8
 ```
+
+---
+
+### Agent Coverage Map
+
+| Agent | Layer | Status | Research Obj | Notes |
+|-------|-------|--------|---------------|----|
+| Master Orchestrator | 1 | ✅ Implemented | All | Workflow coordinator |
+| **Data Collector** | 2 | ✅ Implemented | 2, 5 | GitHub API (2-3 repos) |
+| **Dependency Graph** | 2.5 | 🔴 Proposed | **Obj 1** | Cross-repo blocker detection |
+| **Feature Engineering** | 3 | ✅ Implemented | 2, 5 | 24-dim numeric features |
+| **Synthetic Data Gen** | 3.5 | 🔴 Proposed | **Obj 3** | Cold-start scenario generation |
+| **Embedding Agent** | 4 | ✅ Implemented | 2 | RAG-enabled retrieval |
+| **LLM Reasoning** | 5 | ✅ Implemented | 2, 5 | Llama-3-8B-Q4 inference |
+| **Sprint Analyzer** | 6 | ✅ Implemented | 2 | Sprint health scoring |
+| **Risk Assessor** | 6 | ✅ Implemented | 2 | Blocker detection |
+| **Recommender** | 7 | ✅ Implemented | 2 | Action generation |
+| **Explainer** | 7 | ✅ Implemented | 2 | Evidence-based explanations |
+| **LoRA Training Orch** | 8 | 🔴 Proposed | **Obj 4** | Continual model adaptation |
+| **Validation Coord** | 8 | 🔴 Proposed | **Obj 3, 4** | QA synthetic data & model perf |
 
 ---
 
