@@ -145,7 +145,11 @@ class SprintPreprocessor:
                 "total_prs": len(prs),
                 "total_commits": len(commits),
                 "closed_issues": len([i for i in issues if i["state"] == "closed"]),
-                "merged_prs": len([p for p in prs if p["state"] == "merged"]),
+                "merged_prs": len([
+                    p for p in prs
+                    if p.get("state") == "merged"
+                    or p.get("merged_at") is not None
+                ]),
                 "code_changes": sum(p.get("additions", 0) + p.get("deletions", 0) for p in prs),
                 "total_additions": total_additions,
                 "total_deletions": total_deletions,

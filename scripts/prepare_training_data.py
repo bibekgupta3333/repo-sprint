@@ -18,6 +18,7 @@ Usage:
 """
 
 import json
+import glob
 import random
 import argparse
 import os
@@ -34,21 +35,51 @@ from src.data.synthetic_generator import SyntheticSprintGenerator
 # ------------------------------------------------------------------ #
 
 def load_real_sprints(path: str) -> list[dict]:
-    """Load real sprints and normalize to training format."""
-    with open(path, encoding="utf-8") as f:
-        sprints = json.load(f)
+    """Load real sprints and normalize to training format.
+
+    ``path`` can be:
+      - ``"all"`` to auto-discover every
+        ``*_sprints.json`` in ``data/``
+      - A specific file path
+    """
+    if path == "all":
+        data_dir = os.path.join(
+            os.path.dirname(__file__), "..", "data")
+        files = sorted(glob.glob(
+            os.path.join(data_dir, "*_sprints.json")))
+        # Exclude synthetic sprint files
+        files = [
+            f for f in files
+            if "synthetic" not in os.path.basename(f)
+        ]
+        if not files:
+            print("  No *_sprints.json found in data/")
+            return []
+        print(f"  Found {len(files)} sprint file(s): "
+              + ", ".join(os.path.basename(f) for f in files))
+    else:
+        files = [path]
 
     examples = []
-    for s in sprints:
-        m = s.get("metrics", {})
-        examples.append({
-            "sprint_id": s["sprint_id"],
-            "repo": s.get("repo", ""),
-            "features": m,
-            "label": 1 if s.get("risk_label", {}).get("is_at_risk") else 0,
-            "risk_score": s.get("risk_label", {}).get("risk_score", 0),
-            "source": "real",
-        })
+    for fpath in files:
+        with open(fpath, encoding="utf-8") as f:
+            sprints = json.load(f)
+        repo_name = os.path.basename(fpath).replace(
+            "_sprints.json", "")
+        for s in sprints:
+            m = s.get("metrics", {})
+            examples.append({
+                "sprint_id": s["sprint_id"],
+                "repo": s.get("repo", repo_name),
+                "features": m,
+                "label": (
+                    1 if s.get("risk_label", {}).get(
+                        "is_at_risk") else 0),
+                "risk_score": s.get(
+                    "risk_label", {}).get(
+                    "risk_score", 0),
+                "source": "real",
+            })
     return examples
 
 
@@ -274,8 +305,11 @@ def main():
         description="Prepare augmented training dataset",
     )
     parser.add_argument(
-        "--real", default="data/golang_go_sprints.json",
-        help="Path to real sprints JSON",
+        "--real", default="all",
+        help=(
+            "Path to real sprints JSON, or 'all' to "
+            "auto-discover *_sprints.json in data/"
+        ),
     )
     parser.add_argument(
         "--synthetic-path", default="data/synthetic_sprints.json",
@@ -286,9 +320,9 @@ def main():
         help="Number of synthetic sprints to generate if no file exists",
     )
     parser.add_argument(
-        "--personas", default="all",
-        choices=["large_oss", "startup", "all"],
-        help="Persona set for generation",
+        "--personas", default="auto",
+        choices=["large_oss", "startup", "all", "auto"],
+        help="Persona set for generation (auto = calibrate from real data)",
     )
     parser.add_argument(
         "--config", default="all",

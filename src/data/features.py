@@ -121,7 +121,9 @@ class FeatureExtractor:
             1 for i in self.issues if i.get("state") == "closed"
         )
         merged_prs = sum(
-            1 for p in self.prs if p.get("state") == "merged"
+            1 for p in self.prs
+            if p.get("state") == "merged"
+            or p.get("merged_at") is not None
         )
         code_changes = sum(
             p.get("additions", 0) + p.get("deletions", 0)

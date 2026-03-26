@@ -38,10 +38,13 @@
     "local:anythingllm:hybrid:14d": "python scripts/ingest_local.py repos/Mintplex-Labs/anything-llm --owner Mintplex-Labs --repo anything-llm --diffs --days 14 --issues-limit 0 --prs-limit 0 --pr-diff-limit 0",
     "local:anythingllm:hybrid:30d": "python scripts/ingest_local.py repos/Mintplex-Labs/anything-llm --owner Mintplex-Labs --repo anything-llm --diffs --days 30 --issues-limit 0 --prs-limit 0 --pr-diff-limit 0",
 
-    "generate-synthetic": "python src/data/synthetic_generator.py --count 5000 --personas all",
-    "generate-synthetic:startup": "python src/data/synthetic_generator.py --count 5000 --personas startup",
-    "generate-synthetic:oss": "python src/data/synthetic_generator.py --count 5000 --personas large_oss",
-    "calibrate-synthetic": "python src/data/synthetic_generator.py --calibrate data/golang_go_sprints.json",
+    "generate-synthetic": "python src/data/synthetic_generator.py --count 100 --personas auto",
+    "generate-synthetic:startup": "python src/data/synthetic_generator.py --count 100 --personas startup",
+    "generate-synthetic:oss": "python src/data/synthetic_generator.py --count 100 --personas large_oss",
+    "generate-synthetic:full": "python src/data/synthetic_generator.py --count 5000 --personas auto",
+    "calibrate-synthetic": "python src/data/synthetic_generator.py --calibrate all",
+    "calibrate-synthetic:anythingllm": "python src/data/synthetic_generator.py --calibrate data/Mintplex-Labs_anything-llm_sprints.json",
+    "calibrate-synthetic:golang": "python src/data/synthetic_generator.py --calibrate data/golang_go_sprints.json",
 
     "prepare-training": "python scripts/prepare_training_data.py --config all",
     "prepare-training:baseline": "python scripts/prepare_training_data.py --config baseline",
