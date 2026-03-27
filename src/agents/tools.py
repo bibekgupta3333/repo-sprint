@@ -218,29 +218,56 @@ class FeatureExtractionTool:
         Integrates with src/data/FeatureExtractor.
         """
         try:
-            from src.data import FeatureExtractor
+            # FeatureExtractor in src.data.features expects repo_data + sprint payload.
+            from src.data.features import FeatureExtractor
 
-            # Initialize feature extractor
-            extractor = FeatureExtractor()
-
-            # Prepare data for extraction
             sprint_data = {
                 "issues": github_data.get("issues", []),
-                "pull_requests": github_data.get("prs", []),
+                "prs": github_data.get("prs", []),
                 "commits": github_data.get("commits", []),
-                "sprint_start": github_data.get("sprint_start"),
-                "sprint_end": github_data.get("sprint_end"),
+                "commit_diffs": github_data.get("commit_diffs", []),
             }
 
-            # Extract features using the actual pipeline
-            features = extractor.extract(sprint_data)
+            extractor = FeatureExtractor(repo_data={"name": "runtime_repo"}, sprint=sprint_data)
+            metrics = extractor.extract_metrics()
 
-            return features if isinstance(features, dict) else {
-                "temporal": features.get("temporal", {}),
-                "activity": features.get("activity", {}),
-                "code": features.get("code", {}),
-                "risk": features.get("risk", {}),
-                "team": features.get("team", {}),
+            # Normalize into modality buckets expected by downstream agents.
+            return {
+                "temporal": {
+                    "days_span": float(metrics.get("days_span", 0)),
+                    "issue_age_avg": float(metrics.get("issue_age_avg", 0)),
+                    "pr_age_avg": float(metrics.get("pr_age_avg", 0)),
+                },
+                "activity": {
+                    "total_issues": float(metrics.get("total_issues", 0)),
+                    "total_prs": float(metrics.get("total_prs", 0)),
+                    "total_commits": float(metrics.get("total_commits", 0)),
+                    "closed_issues": float(metrics.get("closed_issues", 0)),
+                    "merged_prs": float(metrics.get("merged_prs", 0)),
+                    "issue_resolution_rate": float(metrics.get("issue_resolution_rate", 0)),
+                    "pr_merge_rate": float(metrics.get("pr_merge_rate", 0)),
+                    "commit_frequency": float(metrics.get("commit_frequency", 0)),
+                    "code_changes": float(metrics.get("code_changes", 0)),
+                },
+                "code": {
+                    "total_code_changes": float(metrics.get("total_code_changes", 0)),
+                    "avg_pr_size": float(metrics.get("avg_pr_size", 0)),
+                    "code_concentration": float(metrics.get("code_concentration", 0)),
+                    "total_additions": float(metrics.get("total_additions", 0)),
+                    "total_deletions": float(metrics.get("total_deletions", 0)),
+                    "files_changed": float(metrics.get("files_changed", 0)),
+                },
+                "risk": {
+                    "stalled_issues": float(metrics.get("stalled_issues", 0)),
+                    "unreviewed_prs": float(metrics.get("unreviewed_prs", 0)),
+                    "abandoned_prs": float(metrics.get("abandoned_prs", 0)),
+                    "long_open_issues": float(metrics.get("long_open_issues", 0)),
+                },
+                "team": {
+                    "unique_authors": float(metrics.get("unique_authors", 0)),
+                    "author_participation": float(metrics.get("author_participation", 0)),
+                },
+                "language": metrics.get("language_breakdown", {}),
             }
         except ImportError:
             logger.warning("FeatureExtractor not available, computing basic features")

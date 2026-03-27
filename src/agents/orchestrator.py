@@ -217,14 +217,72 @@ class MasterOrchestrator:
         state.current_agent = "sprint_analyzer"
 
         try:
-            # Compute sprint health score from features and LLM analysis
-            if state.sprint_analysis:
-                completion = state.sprint_analysis.get("completion_probability", 50) / 100
-                confidence = state.sprint_analysis.get("confidence_score", 0.5)
-                health_score = (completion + confidence) / 2 * 100
-                logger.info(f"  ✓ Sprint health score: {health_score:.1f}")
+            analysis = state.sprint_analysis or {}
+            temporal = state.features.get("temporal", {}) if isinstance(state.features, dict) else {}
+            activity = state.features.get("activity", {}) if isinstance(state.features, dict) else {}
+            code = state.features.get("code", {}) if isinstance(state.features, dict) else {}
+            team = state.features.get("team", {}) if isinstance(state.features, dict) else {}
+            dep = state.dependency_graph if isinstance(state.dependency_graph, dict) else {}
 
-            state.execution_logs.append(f"[sprint_analyzer] Health metrics computed")
+            completion = float(analysis.get("completion_probability", 50.0)) / 100.0
+            confidence = float(analysis.get("confidence_score", 0.5))
+
+            resolution_rate = float(activity.get("issue_resolution_rate", 0.0))
+            merge_rate = float(activity.get("pr_merge_rate", 0.0))
+            commit_frequency = float(activity.get("commit_frequency", 0.0))
+
+            code_concentration = float(code.get("code_concentration", 0.0))
+            quality_score = max(0.0, min(1.0, 1.0 - code_concentration))
+            collaboration_score = max(0.0, min(1.0, float(team.get("author_participation", 0.0) * 3.0)))
+
+            risk_propagation = dep.get("risk_propagation", {}) if isinstance(dep.get("risk_propagation", {}), dict) else {}
+            dependency_risk = max(risk_propagation.values(), default=0.0) if risk_propagation else 0.0
+
+            delivery_score = max(0.0, min(1.0, (resolution_rate + merge_rate) / 2.0))
+            momentum_score = max(0.0, min(1.0, commit_frequency / 3.0))
+
+            # Weighted synthesis across modalities.
+            health_score = 100.0 * (
+                0.28 * completion
+                + 0.22 * delivery_score
+                + 0.15 * momentum_score
+                + 0.10 * quality_score
+                + 0.10 * collaboration_score
+                + 0.10 * confidence
+                + 0.05 * (1.0 - min(1.0, dependency_risk))
+            )
+
+            key_signals = []
+            if resolution_rate < 0.5:
+                key_signals.append("Issue closure rate is below 50%")
+            if merge_rate < 0.5:
+                key_signals.append("PR merge rate indicates review bottlenecks")
+            if dependency_risk > 0.5:
+                key_signals.append("Cross-repository dependency propagation risk is elevated")
+            if code_concentration > 0.7:
+                key_signals.append("Code changes are highly concentrated in few PRs")
+            if not key_signals:
+                key_signals.append("No acute execution bottlenecks detected in current sprint signals")
+
+            analysis["health_score"] = round(health_score, 2)
+            analysis["delivery_score"] = round(delivery_score * 100.0, 2)
+            analysis["momentum_score"] = round(momentum_score * 100.0, 2)
+            analysis["quality_score"] = round(quality_score * 100.0, 2)
+            analysis["collaboration_score"] = round(collaboration_score * 100.0, 2)
+            analysis["dependency_risk_score"] = round(float(dependency_risk) * 100.0, 2)
+            analysis["key_signals"] = key_signals
+
+            if health_score >= 70:
+                analysis["health_status"] = "on_track"
+            elif health_score >= 45:
+                analysis["health_status"] = "at_risk"
+            else:
+                analysis["health_status"] = "critical"
+
+            state.sprint_analysis = analysis
+
+            logger.info(f"  ✓ Sprint health score: {health_score:.1f}")
+            state.execution_logs.append("[sprint_analyzer] Multi-modal sprint intelligence computed")
 
         except Exception as e:
             state.errors.append(f"Sprint analysis failed: {str(e)}")

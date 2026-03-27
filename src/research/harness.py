@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -120,8 +121,14 @@ def _objective_cross_repo_detection(tool_registry: ToolRegistry) -> ObjectiveRes
 
     if uses_local_repos:
         repos = local_repos[:2]
-        ref_target = repos[1].split("/")[-1]
-        issue_body = f"Blocked by {ref_target}#42"
+        # Extract org/repo format from local path for consistent issue reference
+        # If path is 'repos/owner/name', format as 'owner/name'; if 'name-only', use default org
+        repo_path = repos[1].split(os.sep)[-1]
+        if '/' in repos[1]:
+            repo_ref = repos[1].split(os.sep)[-2] + '/' + repos[1].split(os.sep)[-1]
+        else:
+            repo_ref = f"local/{repo_path}"
+        issue_body = f"Blocked by {repo_ref}#42"
     else:
         repos = ["org/repo-a", "org/repo-b"]
         issue_body = "Waiting on org/repo-b#42"

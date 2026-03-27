@@ -218,11 +218,26 @@ class LLMReasonerAgent:
             rag_context = {
                 "similar_sprints": state.similar_sprint_ids,
                 "feature_vector_length": len(state.feature_vector),
+                "dependency_risk_propagation": (
+                    state.dependency_graph.get("risk_propagation", {})
+                    if isinstance(state.dependency_graph, dict)
+                    else {}
+                ),
+            }
+
+            # Provide richer, multi-modal context so sprint analysis is not reduced
+            # to a narrow temporal/risk snapshot.
+            llm_features = {
+                "temporal": state.features.get("temporal", {}),
+                "activity": state.features.get("activity", {}),
+                "code": state.features.get("code", {}),
+                "risk": state.features.get("risk", {}),
+                "team": state.features.get("team", {}),
             }
 
             # Predict completion
             analysis = self.llm_tool.predict_completion_probability(
-                features=state.features.get("temporal", {}),
+                features=llm_features,
                 rag_context=rag_context,
                 system_prompt=SYSTEM_PROMPTS["llm_reasoner"],
             )
@@ -507,6 +522,14 @@ class ExplainerAgent:
             health = analysis.get("health_status", "Unknown")
             lines.append(f"- **Completion Probability**: {completion:.0f}%")
             lines.append(f"- **Sprint Health**: {health.title()}")
+            if "health_score" in analysis:
+                lines.append(f"- **Composite Health Score**: {analysis.get('health_score', 0):.1f}/100")
+            if "dependency_risk_score" in analysis:
+                lines.append(f"- **Cross-Repo Dependency Risk**: {analysis.get('dependency_risk_score', 0):.1f}/100")
+            if analysis.get("key_signals"):
+                lines.append("- **Key Signals**:")
+                for signal in list(analysis.get("key_signals", []))[:4]:
+                    lines.append(f"  - {signal}")
             lines.append("")
 
         # Risks

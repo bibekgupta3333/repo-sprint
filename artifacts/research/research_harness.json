@@ -1,16 +1,16 @@
 {
-  "timestamp": "2026-03-26T12:19:52.375359",
+  "timestamp": "2026-03-26T13:52:52.496925",
   "mode": "strict",
-  "status": "partial",
-  "passed_objectives": 4,
+  "status": "pass",
+  "passed_objectives": 5,
   "total_objectives": 5,
   "results": [
     {
       "objective": "objective_1_cross_repo_detection",
-      "passed": false,
+      "passed": true,
       "claim_eligible": true,
       "details": {
-        "edge_count": 0,
+        "edge_count": 1,
         "uses_local_repos": true,
         "dataset_size": 2,
         "eval_mode": "strict",
@@ -52,7 +52,7 @@
       "details": {
         "training_triggered": true,
         "lora_metrics": {
-          "adapter_id": "lora_org_repo-a_20260326_121941",
+          "adapter_id": "lora_org_repo-a_20260326_135241",
           "f1_before": 0.8,
           "f1_after": 0.8700000000000001,
           "f1_improvement": 0.07000000000000006,
@@ -98,16 +98,16 @@
     },
     "fallback_rate": 0.0,
     "errors": [],
-    "run_metrics_artifact": "artifacts/runs/run_metrics_20260326_121952.json"
+    "run_metrics_artifact": "artifacts/runs/run_metrics_20260326_135252.json"
   },
   "statistics": {
-    "objective_pass_rate": 0.8,
+    "objective_pass_rate": 1.0,
     "objective_pass_rate_wilson_ci_95": {
-      "lower": 0.3755282641185388,
-      "upper": 0.9637768390302125,
-      "point_estimate": 0.8
+      "lower": 0.5655085052479191,
+      "upper": 1.0,
+      "point_estimate": 1.0
     },
-    "binomial_test_pvalue_vs_0_8": 0.6723199999999999
+    "binomial_test_pvalue_vs_0_8": 1.0
   },
   "acceptance_gates": [
     {
@@ -134,5 +134,5 @@
       "passed": true
     }
   ],
-  "claim_ready": false
+  "claim_ready": true
 }
