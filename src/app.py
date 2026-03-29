@@ -15,6 +15,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
+from uuid import uuid4
 
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
@@ -28,6 +29,7 @@ INFERENCE_HISTORY_DIR = ROOT_DIR / "artifacts" / "inference_history"
 MAX_ORG_RUNS = 50
 PIPELINE_TIMEOUT_SECONDS = 60 * 60
 PIPELINE_OUTPUT_LIMIT = 200_000
+MAX_ORG_PIPELINE_JOBS = 25
 
 logging.basicConfig(
     level=logging.INFO,
@@ -37,6 +39,7 @@ logger = logging.getLogger("sprint-ui")
 
 orchestrator: Optional[MasterOrchestrator] = None
 last_result: Optional[dict] = None
+org_pipeline_jobs: dict[str, dict[str, Any]] = {}
 
 
 def _extract_org_from_repo(repo_ref: str) -> str:
@@ -233,6 +236,29 @@ def _parse_repo_names(raw_repos: Any) -> list[str]:
         repo = value.strip()
         if not repo:
             continue
+
+        # Accept common inputs: repo, owner/repo, or GitHub URL.
+        cleaned = repo.strip().rstrip("/")
+        cleaned = cleaned.split("?", 1)[0].split("#", 1)[0]
+
+        if "github.com/" in cleaned:
+            cleaned = cleaned.split("github.com/", 1)[1].strip("/")
+
+        parts = [part for part in cleaned.split("/") if part]
+        if len(parts) >= 2:
+            cleaned = parts[1]
+        elif len(parts) == 1:
+            cleaned = parts[0]
+        else:
+            cleaned = ""
+
+        if cleaned.endswith(".git"):
+            cleaned = cleaned[:-4]
+
+        repo = cleaned.strip()
+        if not repo:
+            raise ValueError("Invalid repository value provided in repos.")
+
         if not re.fullmatch(r"[A-Za-z0-9._-]+", repo):
             raise ValueError(
                 f"Invalid repository '{repo}'. Allowed characters: letters, numbers, '.', '_' and '-'."
@@ -243,6 +269,199 @@ def _parse_repo_names(raw_repos: Any) -> list[str]:
         seen.add(key)
         repos.append(repo)
     return repos
+
+
+async def _parse_request_json_object(request: Request) -> tuple[dict[str, Any] | None, JSONResponse | None]:
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        return None, JSONResponse(
+            status_code=400,
+            content={"error": "Request body must be valid JSON."},
+        )
+    except Exception:
+        return None, JSONResponse(
+            status_code=400,
+            content={"error": "Unable to parse request body as JSON."},
+        )
+
+    if not isinstance(body, dict):
+        return None, JSONResponse(
+            status_code=400,
+            content={"error": "Request body must be a JSON object."},
+        )
+
+    return body, None
+
+
+def _build_org_pipeline_command(body: dict[str, Any]) -> tuple[list[str], dict[str, Any]]:
+    org_link = str(body.get("org_link", "")).strip()
+    if not org_link:
+        raise ValueError("org_link is required (GitHub org URL or org name).")
+
+    repos = _parse_repo_names(body.get("repos", []))
+
+    repo_count_input = body.get("repo_count")
+    if repo_count_input in (None, ""):
+        repo_count = max(1, len(repos))
+    else:
+        try:
+            repo_count = int(repo_count_input)
+        except Exception as exc:
+            raise ValueError("repo_count must be an integer.") from exc
+        if repo_count < 1:
+            raise ValueError("repo_count must be >= 1.")
+
+    if repos:
+        repo_count = max(repo_count, len(repos))
+
+    include_forks = bool(body.get("include_forks", False))
+    no_query_test = bool(body.get("no_query_test", False))
+    dry_run = bool(body.get("dry_run", False))
+
+    synthetic_step = str(body.get("synthetic_step", "calibrate")).strip().lower()
+    if synthetic_step not in {"calibrate", "generate", "skip"}:
+        raise ValueError("synthetic_step must be one of: calibrate, generate, skip.")
+
+    synthetic_personas = str(body.get("synthetic_personas", "auto")).strip().lower()
+    if synthetic_personas not in {"auto", "startup", "large_oss", "all"}:
+        raise ValueError("synthetic_personas must be one of: auto, startup, large_oss, all.")
+
+    try:
+        synthetic_count = int(body.get("synthetic_count", 100))
+    except Exception as exc:
+        raise ValueError("synthetic_count must be an integer.") from exc
+    if synthetic_count < 1:
+        raise ValueError("synthetic_count must be >= 1.")
+
+    cmd: list[str] = ["npm", "run", "org:pipeline", "--", org_link, "--repo-count", str(repo_count)]
+    if repos:
+        cmd.extend(["--repos", *repos])
+    if include_forks:
+        cmd.append("--include-forks")
+    cmd.extend(["--synthetic-step", synthetic_step])
+    if synthetic_step == "generate":
+        cmd.extend([
+            "--synthetic-count",
+            str(synthetic_count),
+            "--synthetic-personas",
+            synthetic_personas,
+        ])
+    if no_query_test:
+        cmd.append("--no-query-test")
+    if dry_run:
+        cmd.append("--dry-run")
+
+    return cmd, {
+        "org_link": org_link,
+        "repos": repos,
+        "repo_count": repo_count,
+    }
+
+
+async def _run_org_pipeline_command(
+    cmd: list[str],
+    context: dict[str, Any],
+    *,
+    started_at: datetime | None = None,
+) -> tuple[int, dict[str, Any]]:
+    if started_at is None:
+        started_at = datetime.now()
+
+    try:
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            cwd=str(ROOT_DIR),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError:
+        return 500, {"error": "npm was not found on this system path."}
+
+    try:
+        stdout_bytes, stderr_bytes = await asyncio.wait_for(
+            process.communicate(),
+            timeout=PIPELINE_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        process.kill()
+        stdout_bytes, stderr_bytes = await process.communicate()
+
+        stdout_text = stdout_bytes.decode("utf-8", errors="replace") if stdout_bytes else ""
+        stderr_text = stderr_bytes.decode("utf-8", errors="replace") if stderr_bytes else ""
+        truncated_stdout, stdout_truncated = _truncate_output(stdout_text)
+        truncated_stderr, stderr_truncated = _truncate_output(stderr_text)
+
+        return 504, {
+            "status": "timeout",
+            "error": f"Org pipeline exceeded timeout ({PIPELINE_TIMEOUT_SECONDS}s).",
+            "command": shlex.join(cmd),
+            "duration_seconds": round((datetime.now() - started_at).total_seconds(), 3),
+            "org_link": context.get("org_link"),
+            "repos": context.get("repos", []),
+            "repo_count": context.get("repo_count"),
+            "stdout": truncated_stdout,
+            "stderr": truncated_stderr,
+            "stdout_truncated": stdout_truncated,
+            "stderr_truncated": stderr_truncated,
+        }
+
+    stdout_text = stdout_bytes.decode("utf-8", errors="replace") if stdout_bytes else ""
+    stderr_text = stderr_bytes.decode("utf-8", errors="replace") if stderr_bytes else ""
+
+    truncated_stdout, stdout_truncated = _truncate_output(stdout_text)
+    truncated_stderr, stderr_truncated = _truncate_output(stderr_text)
+
+    payload = {
+        "status": "success" if process.returncode == 0 else "error",
+        "command": shlex.join(cmd),
+        "returncode": process.returncode,
+        "duration_seconds": round((datetime.now() - started_at).total_seconds(), 3),
+        "org_link": context.get("org_link"),
+        "repos": context.get("repos", []),
+        "repo_count": context.get("repo_count"),
+        "stdout": truncated_stdout,
+        "stderr": truncated_stderr,
+        "stdout_truncated": stdout_truncated,
+        "stderr_truncated": stderr_truncated,
+    }
+
+    if process.returncode != 0:
+        logger.warning("Org pipeline failed (code=%s): %s", process.returncode, shlex.join(cmd))
+
+    return 200, payload
+
+
+def _prune_org_pipeline_jobs() -> None:
+    if len(org_pipeline_jobs) <= MAX_ORG_PIPELINE_JOBS:
+        return
+
+    ordered_job_ids = sorted(
+        org_pipeline_jobs.keys(),
+        key=lambda job_id: org_pipeline_jobs[job_id].get("created_at", ""),
+    )
+
+    for job_id in ordered_job_ids[: len(org_pipeline_jobs) - MAX_ORG_PIPELINE_JOBS]:
+        org_pipeline_jobs.pop(job_id, None)
+
+
+async def _run_org_pipeline_job(job_id: str, cmd: list[str], context: dict[str, Any]) -> None:
+    job = org_pipeline_jobs.get(job_id)
+    if job is None:
+        return
+
+    started_at = datetime.now()
+    job["status"] = "running"
+    job["started_at"] = started_at.isoformat()
+    job["command"] = shlex.join(cmd)
+
+    status_code, payload = await _run_org_pipeline_command(cmd, context, started_at=started_at)
+
+    finished_at = datetime.now().isoformat()
+    job.update(payload)
+    job["http_status"] = status_code
+    job["finished_at"] = finished_at
+
 
 
 @asynccontextmanager
@@ -830,135 +1049,79 @@ async def load_sprint_file(filename: str):
 
 @app.post("/api/ingestion/org-pipeline")
 async def run_org_pipeline_ingestion(request: Request):
-    """Run org ingestion pipeline and return command logs for dashboard use."""
-    body = await request.json()
-
-    org_link = str(body.get("org_link", "")).strip()
-    if not org_link:
-        return JSONResponse(
-            status_code=400,
-            content={"error": "org_link is required (GitHub org URL or org name)."},
-        )
+    """Run org ingestion pipeline synchronously and return logs on completion."""
+    body, error_response = await _parse_request_json_object(request)
+    if error_response is not None:
+        return error_response
 
     try:
-        repos = _parse_repo_names(body.get("repos", []))
+        cmd, context = _build_org_pipeline_command(body)
     except ValueError as exc:
         return JSONResponse(status_code=400, content={"error": str(exc)})
 
-    repo_count_input = body.get("repo_count")
-    if repo_count_input in (None, ""):
-        repo_count = max(1, len(repos))
-    else:
-        try:
-            repo_count = int(repo_count_input)
-        except Exception:
-            return JSONResponse(status_code=400, content={"error": "repo_count must be an integer."})
-        if repo_count < 1:
-            return JSONResponse(status_code=400, content={"error": "repo_count must be >= 1."})
+    status_code, payload = await _run_org_pipeline_command(cmd, context)
+    return JSONResponse(status_code=status_code, content=payload)
 
-    if repos:
-        repo_count = max(repo_count, len(repos))
 
-    include_forks = bool(body.get("include_forks", False))
-    no_query_test = bool(body.get("no_query_test", False))
-    dry_run = bool(body.get("dry_run", False))
-
-    synthetic_step = str(body.get("synthetic_step", "calibrate")).strip().lower()
-    if synthetic_step not in {"calibrate", "generate", "skip"}:
-        return JSONResponse(
-            status_code=400,
-            content={"error": "synthetic_step must be one of: calibrate, generate, skip."},
-        )
-
-    synthetic_personas = str(body.get("synthetic_personas", "auto")).strip().lower()
-    if synthetic_personas not in {"auto", "startup", "large_oss", "all"}:
-        return JSONResponse(
-            status_code=400,
-            content={"error": "synthetic_personas must be one of: auto, startup, large_oss, all."},
-        )
+@app.post("/api/ingestion/org-pipeline/start")
+async def start_org_pipeline_ingestion(request: Request):
+    """Start org ingestion pipeline in background and return a job id."""
+    body, error_response = await _parse_request_json_object(request)
+    if error_response is not None:
+        return error_response
 
     try:
-        synthetic_count = int(body.get("synthetic_count", 100))
-    except Exception:
-        return JSONResponse(status_code=400, content={"error": "synthetic_count must be an integer."})
-    if synthetic_count < 1:
-        return JSONResponse(status_code=400, content={"error": "synthetic_count must be >= 1."})
+        cmd, context = _build_org_pipeline_command(body)
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"error": str(exc)})
 
-    cmd: list[str] = ["npm", "run", "org:pipeline", "--", org_link, "--repo-count", str(repo_count)]
-
-    if repos:
-        cmd.extend(["--repos", *repos])
-    if include_forks:
-        cmd.append("--include-forks")
-    cmd.extend(["--synthetic-step", synthetic_step])
-    if synthetic_step == "generate":
-        cmd.extend([
-            "--synthetic-count",
-            str(synthetic_count),
-            "--synthetic-personas",
-            synthetic_personas,
-        ])
-    if no_query_test:
-        cmd.append("--no-query-test")
-    if dry_run:
-        cmd.append("--dry-run")
-
-    started_at = datetime.now()
-    try:
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            cwd=str(ROOT_DIR),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-    except FileNotFoundError:
-        return JSONResponse(
-            status_code=500,
-            content={"error": "npm was not found on this system path."},
-        )
-
-    try:
-        stdout_bytes, stderr_bytes = await asyncio.wait_for(
-            process.communicate(),
-            timeout=PIPELINE_TIMEOUT_SECONDS,
-        )
-    except asyncio.TimeoutError:
-        process.kill()
-        await process.communicate()
-        return JSONResponse(
-            status_code=504,
-            content={
-                "status": "timeout",
-                "error": f"Org pipeline exceeded timeout ({PIPELINE_TIMEOUT_SECONDS}s).",
-                "command": shlex.join(cmd),
-            },
-        )
-
-    stdout_text = stdout_bytes.decode("utf-8", errors="replace") if stdout_bytes else ""
-    stderr_text = stderr_bytes.decode("utf-8", errors="replace") if stderr_bytes else ""
-
-    truncated_stdout, stdout_truncated = _truncate_output(stdout_text)
-    truncated_stderr, stderr_truncated = _truncate_output(stderr_text)
-
-    duration_seconds = (datetime.now() - started_at).total_seconds()
-    result_payload = {
-        "status": "success" if process.returncode == 0 else "error",
+    job_id = uuid4().hex
+    now = datetime.now().isoformat()
+    job_payload = {
+        "job_id": job_id,
+        "status": "queued",
+        "created_at": now,
+        "started_at": None,
+        "finished_at": None,
+        "http_status": None,
         "command": shlex.join(cmd),
-        "returncode": process.returncode,
-        "duration_seconds": round(duration_seconds, 3),
-        "org_link": org_link,
-        "repos": repos,
-        "repo_count": repo_count,
-        "stdout": truncated_stdout,
-        "stderr": truncated_stderr,
-        "stdout_truncated": stdout_truncated,
-        "stderr_truncated": stderr_truncated,
+        "org_link": context.get("org_link"),
+        "repos": context.get("repos", []),
+        "repo_count": context.get("repo_count"),
+        "stdout": "",
+        "stderr": "",
+        "stdout_truncated": False,
+        "stderr_truncated": False,
     }
 
-    if process.returncode != 0:
-        logger.warning("Org pipeline failed (code=%s): %s", process.returncode, shlex.join(cmd))
+    org_pipeline_jobs[job_id] = job_payload
+    _prune_org_pipeline_jobs()
+    asyncio.create_task(_run_org_pipeline_job(job_id, cmd, context))
 
-    return JSONResponse(content=result_payload)
+    return JSONResponse(status_code=202, content=job_payload)
+
+
+@app.get("/api/ingestion/org-pipeline/{job_id}")
+async def get_org_pipeline_ingestion_status(job_id: str):
+    """Get status and logs for a background org ingestion pipeline job."""
+    job = org_pipeline_jobs.get(job_id)
+    if job is None:
+        return JSONResponse(
+            status_code=404,
+            content={"error": f"Ingestion job not found: {job_id}"},
+        )
+
+    payload = dict(job)
+    if payload.get("status") in {"queued", "running"}:
+        started_at = payload.get("started_at")
+        if isinstance(started_at, str) and started_at:
+            try:
+                elapsed = (datetime.now() - datetime.fromisoformat(started_at)).total_seconds()
+                payload["duration_seconds"] = round(elapsed, 3)
+            except Exception:
+                pass
+
+    return JSONResponse(content=payload)
 
 
 # ═══════════════════════════════════════════════════════════════

@@ -3712,7 +3712,7 @@ async function runOrgPipelineIngestion() {
   setIngestionOutput('Submitting request...');
 
   try {
-    const response = await fetch('/api/ingestion/org-pipeline', {
+    const response = await fetch('/api/ingestion/org-pipeline/start', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -3728,30 +3728,89 @@ async function runOrgPipelineIngestion() {
       return;
     }
 
-    const lines = [];
-    lines.push(`$ ${data.command || 'npm run org:pipeline -- ...'}`);
-    lines.push('');
-    lines.push(`Status: ${data.status || 'unknown'}`);
-    lines.push(`Return Code: ${data.returncode}`);
-    lines.push(`Duration: ${(data.duration_seconds ?? 0).toFixed(3)}s`);
-    if (data.stdout_truncated) {
-      lines.push('Note: stdout truncated to latest logs.');
+    const jobId = data.job_id;
+    if (!jobId) {
+      const message = 'Org pipeline did not return a job id.';
+      setIngestionStatus(message, 'error');
+      setIngestionOutput(message);
+      showToast(message, 'error');
+      return;
     }
-    if (data.stderr_truncated) {
-      lines.push('Note: stderr truncated to latest logs.');
-    }
-    lines.push('');
-    lines.push('[STDOUT]');
-    lines.push(data.stdout || '(no stdout)');
-    lines.push('');
-    lines.push('[STDERR]');
-    lines.push(data.stderr || '(no stderr)');
-    setIngestionOutput(lines.join('\n'));
 
-    if (data.status === 'success') {
+    let finalData = null;
+
+    while (AppState.ingestion.running) {
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      const statusResponse = await fetch(`/api/ingestion/org-pipeline/${encodeURIComponent(jobId)}`);
+      const statusData = await statusResponse.json();
+
+      if (!statusResponse.ok) {
+        const message = statusData.error || 'Failed to fetch org pipeline status.';
+        setIngestionStatus(message, 'error');
+        setIngestionOutput(message);
+        showToast(message, 'error');
+        return;
+      }
+
+      const lines = [];
+      lines.push(`Job ID: ${statusData.job_id || jobId}`);
+      lines.push(`$ ${statusData.command || 'npm run org:pipeline -- ...'}`);
+      lines.push('');
+      lines.push(`Status: ${statusData.status || 'unknown'}`);
+
+      const durationSeconds = Number(statusData.duration_seconds);
+      if (Number.isFinite(durationSeconds)) {
+        lines.push(`Duration: ${durationSeconds.toFixed(3)}s`);
+      }
+      if (statusData.returncode !== undefined && statusData.returncode !== null) {
+        lines.push(`Return Code: ${statusData.returncode}`);
+      }
+      if (statusData.stdout_truncated) {
+        lines.push('Note: stdout truncated to latest logs.');
+      }
+      if (statusData.stderr_truncated) {
+        lines.push('Note: stderr truncated to latest logs.');
+      }
+      lines.push('');
+      lines.push('[STDOUT]');
+      lines.push(
+        statusData.stdout ||
+        (statusData.status === 'queued' || statusData.status === 'running'
+          ? '(pipeline running; logs will be shown after completion)'
+          : '(no stdout)')
+      );
+      lines.push('');
+      lines.push('[STDERR]');
+      lines.push(statusData.stderr || '(no stderr)');
+      setIngestionOutput(lines.join('\n'));
+
+      if (statusData.status === 'queued') {
+        setIngestionStatus('Org pipeline is queued...', 'info');
+        continue;
+      }
+
+      if (statusData.status === 'running') {
+        setIngestionStatus('Org pipeline is running. Full history ingestion can take several minutes.', 'info');
+        continue;
+      }
+
+      finalData = statusData;
+      break;
+    }
+
+    if (!finalData) {
+      return;
+    }
+
+    if (finalData.status === 'success') {
       setIngestionStatus('Org pipeline completed successfully.', 'success');
       showToast('Org pipeline completed successfully.', 'success');
       await loadSprintFiles();
+    } else if (finalData.status === 'timeout') {
+      const timeoutMessage = finalData.error || 'Org pipeline timed out.';
+      setIngestionStatus(timeoutMessage, 'error');
+      showToast(timeoutMessage, 'error');
     } else {
       setIngestionStatus('Org pipeline finished with errors. Review logs below.', 'error');
       showToast('Org pipeline finished with errors.', 'error');
