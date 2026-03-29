@@ -37,6 +37,7 @@
     "local:anythingllm:hybrid": "python scripts/ingest_local.py repos/Mintplex-Labs/anything-llm --owner Mintplex-Labs --repo anything-llm --diffs --issues-limit 0 --prs-limit 0 --pr-diff-limit 0",
     "local:anythingllm:hybrid:14d": "python scripts/ingest_local.py repos/Mintplex-Labs/anything-llm --owner Mintplex-Labs --repo anything-llm --diffs --days 14 --issues-limit 0 --prs-limit 0 --pr-diff-limit 0",
     "local:anythingllm:hybrid:30d": "python scripts/ingest_local.py repos/Mintplex-Labs/anything-llm --owner Mintplex-Labs --repo anything-llm --diffs --days 30 --issues-limit 0 --prs-limit 0 --pr-diff-limit 0",
+    "org:pipeline": "python scripts/run_org_pipeline.py",
 
     "generate-synthetic": "python src/data/synthetic_generator.py --count 100 --personas auto",
     "generate-synthetic:startup": "python src/data/synthetic_generator.py --count 100 --personas startup",
@@ -52,7 +53,15 @@
     "prepare-training:syn-only": "python scripts/prepare_training_data.py --config syn_only",
 
     "analyze": "python scripts/analyze_data.py",
-    "process": "python scripts/process_data.py"
+    "process": "python scripts/process_data.py",
+
+    "chroma:ingest": "python3 -m src.chromadb",
+    "chroma:ingest:test": "python3 -m src.chromadb --query-test",
+    "chroma:ingest:mintplex": "python3 -m src.chromadb --org Mintplex-Labs --repo anything-llm --query-test",
+    "chroma:ingest:vector-admin": "python3 -m src.chromadb --org Mintplex-Labs --repo vector-admin --query-test",
+    "chroma:query": "python3 -m src.chromadb --query-test",
+    "chroma:purge": "python3 -m src.chromadb --purge",
+    "chroma:purge:all": "python3 -m src.chromadb --purge"
   },
   "repository": {
     "type": "git",

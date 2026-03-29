@@ -1,0 +1,138 @@
+{
+  "timestamp": "2026-03-26T13:52:52.496925",
+  "mode": "strict",
+  "status": "pass",
+  "passed_objectives": 5,
+  "total_objectives": 5,
+  "results": [
+    {
+      "objective": "objective_1_cross_repo_detection",
+      "passed": true,
+      "claim_eligible": true,
+      "details": {
+        "edge_count": 1,
+        "uses_local_repos": true,
+        "dataset_size": 2,
+        "eval_mode": "strict",
+        "is_simulated": false,
+        "uses_stub": false
+      }
+    },
+    {
+      "objective": "objective_2_blocker_detection",
+      "passed": true,
+      "claim_eligible": false,
+      "details": {
+        "risk_count": 1,
+        "risk_source": "llm",
+        "dataset_size": 1,
+        "eval_mode": "strict",
+        "is_simulated": true,
+        "uses_stub": true
+      }
+    },
+    {
+      "objective": "objective_3_cold_start_synthetic",
+      "passed": true,
+      "claim_eligible": true,
+      "details": {
+        "synthetic_count": 1000,
+        "validation_count": 8,
+        "realism_score": 1.0,
+        "dataset_size": 1,
+        "eval_mode": "strict",
+        "is_simulated": false,
+        "uses_stub": false
+      }
+    },
+    {
+      "objective": "objective_4_lora_drift_adaptation",
+      "passed": true,
+      "claim_eligible": false,
+      "details": {
+        "training_triggered": true,
+        "lora_metrics": {
+          "adapter_id": "lora_org_repo-a_20260326_135241",
+          "f1_before": 0.8,
+          "f1_after": 0.8700000000000001,
+          "f1_improvement": 0.07000000000000006,
+          "training_loss": 0.25,
+          "validation_loss": 0.28,
+          "training_samples": 10,
+          "training_time_seconds": 120.0,
+          "status": "complete"
+        },
+        "dataset_size": 10,
+        "eval_mode": "strict",
+        "is_simulated": true,
+        "uses_stub": false
+      }
+    },
+    {
+      "objective": "objective_5_explainability_quality",
+      "passed": true,
+      "claim_eligible": false,
+      "details": {
+        "narrative_generated": true,
+        "citation_scores": {
+          "total": 2,
+          "valid_count": 2,
+          "relevant_count": 1,
+          "validity_score": 1.0,
+          "relevance_score": 0.5,
+          "composite_score": 0.75
+        },
+        "dataset_size": 2,
+        "eval_mode": "strict",
+        "is_simulated": true,
+        "uses_stub": false
+      }
+    }
+  ],
+  "strict_pipeline_benchmark": {
+    "eval_mode": "strict",
+    "source_breakdown": {
+      "analysis": "llm",
+      "risk": "llm",
+      "recommendation": "llm"
+    },
+    "fallback_rate": 0.0,
+    "errors": [],
+    "run_metrics_artifact": "artifacts/runs/run_metrics_20260326_135252.json"
+  },
+  "statistics": {
+    "objective_pass_rate": 1.0,
+    "objective_pass_rate_wilson_ci_95": {
+      "lower": 0.5655085052479191,
+      "upper": 1.0,
+      "point_estimate": 1.0
+    },
+    "binomial_test_pvalue_vs_0_8": 1.0
+  },
+  "acceptance_gates": [
+    {
+      "name": "strict_pipeline_fallback_rate_under_10_percent",
+      "passed": true,
+      "value": 0.0,
+      "threshold": 0.1
+    },
+    {
+      "name": "non_empty_objective_datasets_all_5",
+      "passed": true
+    },
+    {
+      "name": "cross_repo_benchmark_uses_local_repos",
+      "passed": true
+    },
+    {
+      "name": "synthetic_validation_has_non_zero_metrics",
+      "passed": true,
+      "value": 8
+    },
+    {
+      "name": "statistical_summary_present",
+      "passed": true
+    }
+  ],
+  "claim_ready": true
+}

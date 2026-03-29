@@ -7,6 +7,9 @@ dist/
 build/
 .Python
 
+# ChromaDB
+chroma_db/
+repos/
 # Virtual environments
 .venv/
 venv/
