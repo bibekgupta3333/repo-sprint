@@ -76,6 +76,9 @@
     <a class="nav-item" data-page="settings" onclick="navigateTo('settings')">
       <span class="icon">⚙️</span><span>Settings</span>
     </a>
+    <a class="nav-item" data-page="about" onclick="navigateTo('about')">
+      <span class="icon">ℹ️</span><span>About System</span>
+    </a>
   </nav>
 
   <div class="sidebar-footer">
@@ -522,6 +525,539 @@ Highlight top 3 interventions with evidence."></textarea>
             <strong style="color:var(--text-sec)">Team:</strong> Bibek Gupta · Saarupya Sunkara · Siwani Sah · Deepthi Reddy Chelladi
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- ═══ About Page ═══ -->
+    <div class="page-view" id="page-about">
+      <!-- SYSTEM OVERVIEW -->
+      <div class="card" style="margin-bottom:1rem">
+        <div class="card-title"><span class="icon">🏗️</span> System Overview - How It All Works</div>
+        <div class="about-intro">
+          <h2>Sprint Intelligence Multi-Agent Platform</h2>
+          <p>
+            This platform combines orchestration, data engineering, retrieval, and LLM inference into one
+            end-to-end workflow for sprint health intelligence. It is designed to support both interactive
+            analysis and organization-scale ingestion pipelines.
+          </p>
+          <h3 style="margin-top:1.5rem;margin-bottom:0.5rem;">How the System Works</h3>
+          <p>
+            <strong>The Core Flow:</strong> Users submit a sprint (via JSON or natural language query) → The system orchestrates 11 specialized agents to
+            analyze repository metadata, dependencies, issues, PRs, and commits → Agents build multi-modal feature vectors → RAG retrieval
+            enriches context from ChromaDB → LLM reasoning (via Ollama) estimates completion probability and health status → Risk analysis and
+            recommendations are generated → A narrative explanation is delivered through the dashboard.
+          </p>
+          <p>
+            <strong>Key Design Principles:</strong>
+          </p>
+          <ul class="about-list">
+            <li><strong>Modular Agents:</strong> Each agent has a single responsibility (collect data, extract features, reason, explain).</li>
+            <li><strong>Local-First:</strong> All inference runs locally via Ollama—no external LLM calls, full data privacy.</li>
+            <li><strong>RAG-Grounded:</strong> Reasoning is constrained by vector-retrieved evidence from the indexed repository.</li>
+            <li><strong>Async-Aware:</strong> Large ingestion jobs run in background threads with job IDs and polling APIs.</li>
+            <li><strong>Explainable:</strong> Every output includes evidence traces, risk categories, and narrative justification.</li>
+          </ul>
+        </div>
+        <div class="about-kpi-grid">
+          <div class="about-kpi-card">
+            <div class="k-label">Core Orchestration</div>
+            <div class="k-value">11 Agents</div>
+            <div class="k-sub">Router, Collector, Dep Graph, Feature Eng, Analyzer, Risk, Recommender, Explainer + 3 more</div>
+          </div>
+          <div class="about-kpi-card">
+            <div class="k-label">Inference Stack</div>
+            <div class="k-value">FastAPI + Ollama</div>
+            <div class="k-sub">RESTful APIs with local LLM (100% offline, no external calls)</div>
+          </div>
+          <div class="about-kpi-card">
+            <div class="k-label">RAG Layer</div>
+            <div class="k-value">ChromaDB Vector Store</div>
+            <div class="k-sub">Repo-scoped collections with semantic search & evidence tracing</div>
+          </div>
+          <div class="about-kpi-card">
+            <div class="k-label">Pipeline Modes</div>
+            <div class="k-value">Sync + Async</div>
+            <div class="k-sub">On-demand analysis (sync) + background org ingestion (async with job tracking)</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- AGENT ORCHESTRATION DETAILED -->
+      <div class="card" style="margin-bottom:1rem">
+        <div class="card-title"><span class="icon">🧠</span> Agent Orchestration - Detailed Process</div>
+        <div style="margin-bottom:1rem;">
+          <h3 style="margin-bottom:0.75rem;">How Agents Work Together</h3>
+          <p>
+            The orchestration is built on LangGraph state machine. Each agent reads the current state, performs its task,
+            and writes results back to the shared state. Agents execute in defined stages, with each stage building on the
+            previous stage's output.
+          </p>
+        </div>
+
+        <div class="about-flow" role="img" aria-label="Agent orchestration flow diagram" style="margin-bottom:1.5rem;">
+          <div class="flow-lane">
+            <span class="lane-label">Input</span>
+            <div class="flow-pill">Sprint JSON /<br>Query</div>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-lane">
+            <span class="lane-label">Control</span>
+            <div class="flow-pill">Router Agent<br>(Validate)</div>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-lane">
+            <span class="lane-label">Data Gathering</span>
+            <div class="flow-pill">Collector<br>+ Dep Graph</div>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-lane">
+            <span class="lane-label">Feature Extraction</span>
+            <div class="flow-pill">Feature Eng<br>Agent</div>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-lane">
+            <span class="lane-label">Analysis</span>
+            <div class="flow-pill">Analyzer +<br>RAG Reasoner</div>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-lane">
+            <span class="lane-label">Output</span>
+            <div class="flow-pill">Risk + Rec +<br>Explainer</div>
+          </div>
+        </div>
+
+        <h3 style="margin-bottom:0.75rem;">The 11 Agents Explained</h3>
+        <div style="margin-bottom:1rem;">
+          <table class="about-table" style="width:100%;margin-top:0.75rem;">
+            <thead>
+              <tr>
+                <th>Agent</th>
+                <th>What It Does</th>
+                <th>Input</th>
+                <th>Output</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Router</strong></td>
+                <td>Entry point; normalizes and validates inputs, determines analysis mode (strict/resilient)</td>
+                <td>JSON payload or query text</td>
+                <td>Validated state object, mode flag</td>
+              </tr>
+              <tr>
+                <td><strong>Collector</strong></td>
+                <td>Gathers sprint metadata, issue counts, PR data, commit history from GitHub APIs</td>
+                <td>Repo owner, name, sprint ID</td>
+                <td>Raw GitHub data (issues, PRs, commits)</td>
+              </tr>
+              <tr>
+                <td><strong>Dependency Graph</strong></td>
+                <td>Builds task dependency graph from issue links and PR references</td>
+                <td>Issues and PRs</td>
+                <td>Dependency matrix, critical path</td>
+              </tr>
+              <tr>
+                <td><strong>Feature Engineer</strong></td>
+                <td>Derives multi-modal features: velocity, burn-down, team patterns, code churn</td>
+                <td>GitHub data + dependency graph</td>
+                <td>Feature vectors (20+ dimensions)</td>
+              </tr>
+              <tr>
+                <td><strong>Sprint Analyzer</strong></td>
+                <td>Analyzes sprint metrics: velocity trends, scope creep, capacity utilization</td>
+                <td>Features + historical runs</td>
+                <td>Sprint health score, trend analysis</td>
+              </tr>
+              <tr>
+                <td><strong>RAG + Reasoner</strong></td>
+                <td>Queries ChromaDB for similar sprints, retrieves evidence, feeds to Ollama for reasoning</td>
+                <td>Feature vectors + query embeddings</td>
+                <td>Retrieved context + LLM reasoning (completion %, health status)</td>
+              </tr>
+              <tr>
+                <td><strong>Risk Assessor</strong></td>
+                <td>Identifies risks from patterns: blocker issues, PR delays, team availability</td>
+                <td>Sprint metrics + features</td>
+                <td>Risk list with severity levels</td>
+              </tr>
+              <tr>
+                <td><strong>Recommender</strong></td>
+                <td>Suggests interventions: reassign tasks, cut scope, add capacity, unblock PRs</td>
+                <td>Risks + dependencies + team info</td>
+                <td>Actionable recommendations with impact estimates</td>
+              </tr>
+              <tr>
+                <td><strong>Explainer</strong></td>
+                <td>Generates narrative explanation: "Why this result? What evidence supports it?"</td>
+                <td>All previous outputs</td>
+                <td>Markdown explanation + evidence traces</td>
+              </tr>
+              <tr>
+                <td><strong>LoRA Trainer</strong></td>
+                <td>Fine-tunes embeddings or retrieval models on new sprint data</td>
+                <td>Training sprint artifacts</td>
+                <td>Improved model weights</td>
+              </tr>
+              <tr>
+                <td><strong>Synthetic Gen</strong></td>
+                <td>Creates synthetic sprint scenarios for testing, calibration, and robustness</td>
+                <td>Real sprint stats + templates</td>
+                <td>Synthetic sprint JSON with variations</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p style="font-style:italic;color:var(--text-secondary);">
+          💡 <strong>Key Point:</strong> Agents never run in isolation. Each agent's output becomes input for the next stage.
+          The orchestrator maintains a single state dict that grows richer with each agent's contribution.
+        </p>
+      </div>
+
+      <!-- DATA PIPELINE DETAILED -->
+      <div class="card" style="margin-bottom:1rem">
+        <div class="card-title"><span class="icon">📦</span> Data Pipeline - Load & Processing Details</div>
+        <div style="margin-bottom:1rem;">
+          <h3 style="margin-bottom:0.75rem;">How Data Flows Through the System</h3>
+          <p>
+            The data pipeline handles both on-demand ingestion (single sprint analysis) and bulk ingestion
+            (entire organizations). It transforms raw GitHub data into indexed, searchable knowledge.
+          </p>
+        </div>
+
+        <h3 style="margin-bottom:0.75rem;">The 5-Stage Pipeline</h3>
+        <div class="about-pipeline-track" style="margin-bottom:1.5rem;">
+          <span class="track-step"><strong>1.</strong> Ingest</span>
+          <span class="track-step"><strong>2.</strong> Normalize</span>
+          <span class="track-step"><strong>3.</strong> Enrich</span>
+          <span class="track-step"><strong>4.</strong> Embed & Index</span>
+          <span class="track-step"><strong>5.</strong> Query</span>
+        </div>
+
+        <div style="background:var(--bg-secondary);padding:1rem;border-radius:0.5rem;margin-bottom:1rem;">
+          <h4 style="margin-bottom:0.5rem;">Stage 1: Ingest</h4>
+          <p style="margin:0;">
+            <strong>What happens:</strong> The system fetches repository data via GitHub API (or local repo cloning for org pipelines).
+            Data includes issues, pull requests, commits, branches, releases, and contributor activity. For organization-level ingestion,
+            the system can clone/update multiple repos in parallel.
+          </p>
+          <p style="margin:0.5rem 0 0 0;"><strong>How:</strong> Uses GitHub REST API for issues/PRs, git CLI for commit history and file changes.
+          Handles pagination (1000s of issues) and rate limiting transparently.</p>
+        </div>
+
+        <div style="background:var(--bg-secondary);padding:1rem;border-radius:0.5rem;margin-bottom:1rem;">
+          <h4 style="margin-bottom:0.5rem;">Stage 2: Normalize</h4>
+          <p style="margin:0;">
+            <strong>What happens:</strong> Raw GitHub data is parsed into consistent schemas. Issues become "Issue" objects,
+            PRs become "PR" objects, and commits become "Commit" objects. Sprint boundaries are applied (group by sprint ID or date ranges).
+          </p>
+          <p style="margin:0.5rem 0 0 0;"><strong>Output:</strong> Normalized JSON with uniform structure regardless of GitHub API quirks.</p>
+        </div>
+
+        <div style="background:var(--bg-secondary);padding:1rem;border-radius:0.5rem;margin-bottom:1rem;">
+          <h4 style="margin-bottom:0.5rem;">Stage 3: Enrich</h4>
+          <p style="margin:0;">
+            <strong>What happens:</strong> The system adds derived data: dependency links, sentiment analysis of PR comments,
+            code complexity metrics, team velocity calculations, and synthetic sprint generations (for model training).
+          </p>
+          <p style="margin:0.5rem 0 0 0;"><strong>Example:</strong> If issue #5 mentions issue #3, a "blocks" relationship is added.
+          If PR #10 is linked to 5 issues, those connections are indexed for later retrieval.</p>
+        </div>
+
+        <div style="background:var(--bg-secondary);padding:1rem;border-radius:0.5rem;margin-bottom:1rem;">
+          <h4 style="margin-bottom:0.5rem;">Stage 4: Embed & Index</h4>
+          <p style="margin:0;">
+            <strong>What happens:</strong> Enriched documents (issue summaries, PR descriptions, commit messages, sprint overviews)
+            are vectorized using an embedding model. Each document is converted to a vector in high-dimensional space (e.g., 1536 dimensions).
+          </p>
+          <p style="margin:0.5rem 0 0 0;"><strong>Indexed in:</strong> ChromaDB with per-repository collections. This enables fast
+          semantic search ("Find sprints similar to current one") during inference.</p>
+        </div>
+
+        <div style="background:var(--bg-secondary);padding:1rem;border-radius:0.5rem;margin-bottom:1rem;">
+          <h4 style="margin-bottom:0.5rem;">Stage 5: Query & Retrieve</h4>
+          <p style="margin:0;">
+            <strong>What happens:</strong> During inference, the Reasoner Agent queries ChromaDB with the current sprint's feature vector.
+            It retrieves the K most similar sprints with their outcomes and metadata. This evidence constrains LLM reasoning.
+          </p>
+          <p style="margin:0.5rem 0 0 0;"><strong>Result:</strong> LLM has real, grounded examples to reason from instead of pure hallucination.</p>
+        </div>
+
+        <h3 style="margin:1.5rem 0 0.75rem 0;">Data Load & Performance</h3>
+        <ul class="about-list">
+          <li><strong>Single Sprint Ingestion:</strong> ~100 issues/PRs → loads in <2 seconds (on modern hardware).</li>
+          <li><strong>Organization Ingestion:</strong> 50+ repos, 1000s of sprints → runs asynchronously with job tracking, typically 30-120+ seconds depending on GitHub rate limits.</li>
+          <li><strong>Memory Footprint:</strong> Streaming ingestion to avoid loading entire org into RAM; documents are indexed directly into ChromaDB.</li>
+          <li><strong>Scalability:</strong> ChromaDB is file-backed (SQLite), suitable for 1000s–10,000+ documents. For larger scale, consider vector DB with cloud backend.</li>
+        </ul>
+
+        <h3 style="margin:1.5rem 0 0.75rem 0;">Data Flow Diagram</h3>
+        <div class="data-flow-diagram">
+          <div class="flow-stage">
+            <div class="stage-icon">📡</div>
+            <div class="stage-title">Data Sources</div>
+            <div class="stage-items">
+              <div>GitHub APIs</div>
+              <div>Local Git Repos</div>
+              <div>User Uploads</div>
+            </div>
+          </div>
+          <div class="flow-connector">→</div>
+          <div class="flow-stage">
+            <div class="stage-icon">⚙️</div>
+            <div class="stage-title">Processing</div>
+            <div class="stage-items">
+              <div>Normalize</div>
+              <div>Extract Features</div>
+              <div>Enrich Data</div>
+            </div>
+          </div>
+          <div class="flow-connector">→</div>
+          <div class="flow-stage">
+            <div class="stage-icon">🗂️</div>
+            <div class="stage-title">Storage</div>
+            <div class="stage-items">
+              <div>ChromaDB</div>
+              <div>Vector Embeddings</div>
+              <div>Metadata Index</div>
+            </div>
+          </div>
+          <div class="flow-connector">→</div>
+          <div class="flow-stage">
+            <div class="stage-icon">🔍</div>
+            <div class="stage-title">Retrieval & Use</div>
+            <div class="stage-items">
+              <div>Semantic Search</div>
+              <div>Evidence Fetch</div>
+              <div>LLM Context</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- INFERENCE DETAILED -->
+      <div class="card" style="margin-bottom:1rem">
+        <div class="card-title"><span class="icon">⚡</span> Inference Lifecycle - Complete Process</div>
+        <div style="margin-bottom:1rem;">
+          <h3 style="margin-bottom:0.75rem;">How a Request is Processed End-to-End</h3>
+          <p>
+            When you submit a sprint for analysis, here's exactly what happens at each step:
+          </p>
+        </div>
+
+        <div class="about-timeline">
+          <div class="timeline-block">
+            <div class="t-title">📥 A. Request Intake (0-100ms)</div>
+            <div class="t-body">
+              FastAPI endpoint receives JSON or natural language query. Validates sprint schema, repository exists,
+              and user has permissions. Router Agent normalizes input into internal state representation.
+              Rejected if malformed; returns 400 with error details.
+            </div>
+          </div>
+          <div class="timeline-block">
+            <div class="t-title">🔍 B. Context Building (100-500ms)</div>
+            <div class="t-body">
+              Collector Agent fetches fresh GitHub data (issues, PRs, commits). Feature Engineer derives metrics
+              (velocity, burn-down, code churn, team patterns). RAG Reasoner queries ChromaDB for 3-5 most similar sprints
+              with historical outcomes. Result: rich feature vectors + retrieved evidence context.
+            </div>
+          </div>
+          <div class="timeline-block">
+            <div class="t-title">🧠 C. Model Reasoning (500-1500ms)</div>
+            <div class="t-body">
+              Ollama LLM receives prompt: "Given these sprint metrics and these similar historical sprints,
+              estimate completion probability." LLM reasons over the constrained context and produces structured output:
+              completion %, health status, confidence score. All reasoning stays local (no external API calls).
+            </div>
+          </div>
+          <div class="timeline-block">
+            <div class="t-title">⚠️ D. Post-Processing (1500-2000ms)</div>
+            <div class="t-body">
+              Risk Assessor identifies red flags (blocker issues, team availability, dependencies).
+              Recommender suggests interventions. Explainer generates markdown narrative with references to evidence:
+              "Completion risk is HIGH because: [3 specific issues blocking], [2 PRs unreviewed], [team is at 110% capacity]."
+            </div>
+          </div>
+          <div class="timeline-block">
+            <div class="t-title">📊 E. Delivery (2000-2100ms)</div>
+            <div class="t-body">
+              Dashboard renders response: completion meter, risk cards, dependency graph, recommendation list,
+              evidence timeline. All data is cached in browser session state. User can inspect evidence traces,
+              drill into specific issues/PRs, and view explainability breakdown. JSON response is also available via API.
+            </div>
+          </div>
+        </div>
+
+        <h3 style="margin:1.5rem 0 0.75rem 0;">Complete Inference Pipeline Diagram</h3>
+        <div style="background:var(--bg-secondary);padding:1rem;border-radius:0.5rem;margin-bottom:1rem;overflow-x:auto;">
+          <pre style="margin:0;font-size:0.85rem;white-space:pre-wrap;word-wrap:break-word;">
+User Query / JSON Sprint
+         ↓
+    [Router Agent]
+    • Validate schema
+    • Normalize input
+    • Set mode (strict/resilient)
+         ↓
+    ┌──────────────────────────────┐
+    │  Parallel Stage 1            │
+    ├──────────────────────────────┤
+    │ [Collector] → GitHub API     │ Fetch issues, PRs, commits
+    │ [Analyzer] → Metrics         │ Filter by sprint boundaries
+    └──────────────────────────────┘
+         ↓
+    ┌──────────────────────────────┐
+    │  Parallel Stage 2            │
+    ├──────────────────────────────┤
+    │ [Feature Engineer] → Vectors │ Multi-modal feature extraction
+    │ [Dep Graph] → Dependencies   │ Build task dependency links
+    └──────────────────────────────┘
+         ↓
+    [RAG + Reasoner]
+    • Query ChromaDB for similar sprints
+    • Retrieve top-K evidence
+    • Feed to Ollama with context
+         ↓
+    ┌──────────────────────────────┐
+    │  Parallel Stage 3            │
+    ├──────────────────────────────┤
+    │ [Risk Assessor] → Risks      │ Identify blockers, delays
+    │ [Recommender] → Actions      │ Suggest interventions
+    └──────────────────────────────┘
+         ↓
+    [Explainer Agent]
+    • Build narrative explanation
+    • Link evidence (issues #5, PR #12, etc.)
+    • Output markdown + traces
+         ↓
+    Response to User
+    • Completion % & confidence
+    • Health score & trends
+    • Risks & recommendations
+    • Evidence & explanations
+          </pre>
+        </div>
+
+        <h3 style="margin:1.5rem 0 0.75rem 0;">Key Points About Inference</h3>
+        <ul class="about-list">
+          <li><strong>Fast:</strong> Typical end-to-end inference is 2-3 seconds (cached ChromaDB + local LLM).</li>
+          <li><strong>Local:</strong> All reasoning happens on your machine via Ollama. No data sent to external APIs.</li>
+          <li><strong>Evidence-Based:</strong> Every output is grounded in retrieved historical examples and current sprint metrics.</li>
+          <li><strong>Explainable:</strong> Every recommendation includes "why"—which risk triggered it, which evidence supports it.</li>
+          <li><strong>Non-Blocking:</strong> Can handle multiple concurrent requests via FastAPI async handling.</li>
+        </ul>
+      </div>
+
+      <!-- API SURFACE -->
+      <div class="grid-2" style="margin-bottom:1rem;">
+        <div class="card">
+          <div class="card-title"><span class="icon">🛰️</span> API Surface - Complete Endpoints</div>
+          <div class="about-table-wrap">
+            <table class="about-table">
+              <thead>
+                <tr>
+                  <th>Endpoint</th>
+                  <th>Method</th>
+                  <th>Purpose</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>/api/health</td>
+                  <td>GET</td>
+                  <td>Orchestrator and Ollama readiness status</td>
+                </tr>
+                <tr>
+                  <td>/api/analyze</td>
+                  <td>POST</td>
+                  <td>Submit sprint JSON for synchronous analysis</td>
+                </tr>
+                <tr>
+                  <td>/api/analyze/query</td>
+                  <td>POST</td>
+                  <td>Submit natural language query for analysis</td>
+                </tr>
+                <tr>
+                  <td>/api/ingestion/org-pipeline/start</td>
+                  <td>POST</td>
+                  <td>Begin async org ingestion, returns job ID (202)</td>
+                </tr>
+                <tr>
+                  <td>/api/ingestion/org-pipeline/{job_id}</td>
+                  <td>GET</td>
+                  <td>Poll job status (queued/running/success/error)</td>
+                </tr>
+                <tr>
+                  <td>/api/data/sprints</td>
+                  <td>GET</td>
+                  <td>List all indexed sprint files</td>
+                </tr>
+                <tr>
+                  <td>/api/data/sprint/{filename}</td>
+                  <td>GET</td>
+                  <td>Load specific sprint JSON for analysis</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span class="icon">📚</span> Research Alignment & Design Goals</div>
+          <ul class="about-list">
+            <li><strong>Explainability:</strong> Every output includes narrative reasoning, specific risk IDs, evidence traces (issue #5 blocks issue #3), and grounding in historical examples.</li>
+            <li><strong>Scalability:</strong> Async org ingestion with UUID job tracking enables background processing of 100s of repos without blocking UI. Streaming data load avoids memory blowup.</li>
+            <li><strong>Robustness:</strong> Strict mode (fail-fast on any data error) vs. resilient mode (graceful fallback, skip missing data). Both produce valid outputs.</li>
+            <li><strong>Reproducibility:</strong> All run artifacts (metrics JSON, input sprint, retrieved evidence, LLM prompt, response) are saved for audit trails and benchmarking.</li>
+            <li><strong>RAG Fidelity:</strong> Repository-scoped ChromaDB collections prevent evidence leakage from unrelated repos. Semantic search ensures retrieved examples are truly similar.</li>
+            <li><strong>Privacy:</strong> 100% local inference—data never leaves your machine. No cloud calls, no telemetry, no data escapes.</li>
+          </ul>
+          <div class="about-note" style="margin-top:1rem;">
+            <strong>📖 About This Page:</strong> This documentation reflects the current implementation and is intended for engineers, researchers,
+            and demo walkthroughs. For integration guides, see the repository README and docs/ folder.
+          </div>
+        </div>
+      </div>
+
+      <!-- HOW TO USE -->
+      <div class="card">
+        <div class="card-title"><span class="icon">🚀</span> How to Use the System</div>
+
+        <h3 style="margin:0 0 0.75rem 0;">Quick Start - 3 Steps</h3>
+        <ol class="about-list" style="list-style-type:decimal;padding-left:1.5rem;">
+          <li>
+            <strong>Load or Ingest Data:</strong>
+            <ul style="margin:0.25rem 0;list-style-type:disc;padding-left:1.5rem;">
+              <li><em>Single Sprint:</em> Click "Ingestion" → Enter repo name (e.g., <code style="background:var(--bg-secondary);padding:0.1rem 0.3rem;border-radius:0.2rem;">badges/shields</code>) → Submit</li>
+              <li><em>Organization:</em> Enter owner name (e.g., <code style="background:var(--bg-secondary);padding:0.1rem 0.3rem;border-radius:0.2rem;">vercel-labs</code>) → Submit → Wait for async job</li>
+            </ul>
+          </li>
+          <li>
+            <strong>Analyze a Sprint:</strong>
+            <ul style="margin:0.25rem 0;list-style-type:disc;padding-left:1.5rem;">
+              <li>Click "Analyze" → Select a sprint from the dropdown (shows recent ingestions)</li>
+              <li>Or enter a JSON sprint object directly and submit</li>
+              <li>System runs orchestration in 2-3 seconds</li>
+            </ul>
+          </li>
+          <li>
+            <strong>View Results:</strong>
+            <ul style="margin:0.25rem 0;list-style-type:disc;padding-left:1.5rem;">
+              <li>"Results" page shows completion %, health, risks, recommendations</li>
+              <li>"Dependencies" page shows task graph (which issues block which)</li>
+              <li>"Recommendations" page lists actionable interventions</li>
+              <li>Click any alert to see evidence & explainability breakdown</li>
+            </ul>
+          </li>
+        </ol>
+
+        <h3 style="margin:1.5rem 0 0.75rem 0;">Advanced: Understanding Outputs</h3>
+        <ul class="about-list">
+          <li><strong>Completion %:</strong> Estimated probability sprint finishes on time. 95-100% = high confidence, &lt;70% = high risk.</li>
+          <li><strong>Health Score:</strong> Team capacity, velocity stability, dependency complexity rolled into one metric (0-100).</li>
+          <li><strong>Risks:</strong> Categorized by type (blocker issue, PR delay, capacity overload, etc.) with impact scores.</li>
+          <li><strong>Recommendations:</strong> Specific actions (reassign task to person X, cut feature Y, unblock PR #Z) with estimated impact on completion %.</li>
+          <li><strong>Evidence:</strong> Clickable links to specific GitHub issues/PRs that triggered each finding.</li>
+        </ul>
       </div>
     </div>
 

@@ -17,7 +17,7 @@ const DEFAULT_VIEW_FILTERS = {
   sourceMode: 'all',
 };
 
-const DASHBOARD_PAGES = ['dashboard', 'analyze', 'results', 'dependencies', 'recommendations', 'ingestion', 'settings'];
+const DASHBOARD_PAGES = ['dashboard', 'analyze', 'results', 'dependencies', 'recommendations', 'ingestion', 'settings', 'about'];
 const DRILLDOWN_DEFAULT_SORT = { key: 'z_delta', direction: 'desc' };
 const SOURCE_RELIABILITY_SCORES = {
   llm: 1,
@@ -206,6 +206,7 @@ function navigateTo(page) {
     recommendations:['Interventions',    'AI-generated actionable recommendations'],
     ingestion:      ['Ingestion',        'Run organization data ingestion pipeline from dashboard'],
     settings:       ['Settings',         'System configuration and preferences'],
+    about:          ['About System',     'Architecture, orchestration, and pipeline details'],
   };
   const [title, desc] = titles[page] || ['Sprint Intelligence', ''];
   document.getElementById('page-title').textContent = title;
@@ -1106,6 +1107,13 @@ function getCommandActions() {
       run: () => navigateTo('dependencies'),
     },
     {
+      id: 'cmd-open-about',
+      title: 'Open About System Page',
+      meta: 'View orchestration, pipeline, and inference architecture details.',
+      keyHint: 'Alt+8',
+      run: () => navigateTo('about'),
+    },
+    {
       id: 'cmd-export-report',
       title: 'Export Report JSON',
       meta: 'Download current sprint result, metadata, notes, and annotations.',
@@ -1369,7 +1377,7 @@ function handleGlobalKeyboardShortcuts(event) {
     return;
   }
 
-  if (event.altKey && ['1', '2', '3', '4', '5', '6', '7'].includes(event.key)) {
+  if (event.altKey && ['1', '2', '3', '4', '5', '6', '7', '8'].includes(event.key)) {
     event.preventDefault();
     const pageMap = {
       '1': 'dashboard',
@@ -1379,6 +1387,7 @@ function handleGlobalKeyboardShortcuts(event) {
       '5': 'recommendations',
       '6': 'ingestion',
       '7': 'settings',
+      '8': 'about',
     };
     const page = pageMap[event.key];
     navigateTo(page);
