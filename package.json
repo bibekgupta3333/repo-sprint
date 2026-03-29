@@ -4,6 +4,7 @@
   "description": "GitHub data pipeline for sprint intelligence research",
   "scripts": {
     "ingest": "python scripts/ingest.py",
+    "fastapi": "uvicorn src.app:app --host 0.0.0.0 --port 8000 --reload",
     "all": "python scripts/ingest.py golang go --diffs --pr-diff-limit 1000 && python scripts/ingest.py rust-lang rust --diffs --pr-diff-limit 1000 && python scripts/ingest.py torvalds linux --diffs --pr-diff-limit 500",
     "golang": "python scripts/ingest.py golang go --diffs --pr-diff-limit 5",
     "rust": "python scripts/ingest.py rust-lang rust --diffs --pr-diff-limit 5",

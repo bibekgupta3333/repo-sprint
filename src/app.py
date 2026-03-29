@@ -23,7 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from src.agents.state import OrchestratorState, GitHubIssue
 from src.agents.orchestrator import MasterOrchestrator
 
-ROOT_DIR = Path(__file__).resolve().parent
+ROOT_DIR = Path(__file__).resolve().parent.parent
 INFERENCE_HISTORY_DIR = ROOT_DIR / "artifacts" / "inference_history"
 MAX_ORG_RUNS = 50
 PIPELINE_TIMEOUT_SECONDS = 60 * 60
@@ -1523,4 +1523,4 @@ function toggleLogs(){
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("src.app:app", host="0.0.0.0", port=8000, reload=True)

@@ -10,6 +10,10 @@ build/
 # ChromaDB
 chroma_db/
 repos/
+
+# Generated artifacts
+artifacts/
+
 # Virtual environments
 .venv/
 venv/
