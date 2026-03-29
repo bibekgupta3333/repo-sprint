@@ -1,0 +1,481 @@
+\documentclass[journal]{IEEEtran}
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{array}
+\usepackage{url}
+
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+
+\begin{document}
+
+\title{Mid-Progress Report:\\Intelligent Sprint Analysis Using Agentic System for Startup Projects}
+
+\author{
+\small
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}cccc@{}}
+\begin{tabular}{@{}c@{}}
+\textbf{Bibek Gupta} \\
+\scriptsize
+\textit{Department of Computer Science} \\
+\textit{Florida Polytechnic University} \\
+Lakeland, Florida, USA \\
+bgupta2957@floridapoly.edu
+\end{tabular}
+&
+\begin{tabular}{@{}c@{}}
+\textbf{Saarupya Sunkara} \\
+\scriptsize
+\textit{Department of Computer Science} \\
+\textit{Florida Polytechnic University} \\
+Lakeland, Florida, USA \\
+vsunkara3613@floridapoly.edu
+\end{tabular}
+&
+\begin{tabular}{@{}c@{}}
+\textbf{Siwani Sah} \\
+\scriptsize
+\textit{Department of Computer Science} \\
+\textit{Florida Polytechnic University} \\
+Lakeland, Florida, USA \\
+ssah2942@floridapoly.edu
+\end{tabular}
+&
+\begin{tabular}{@{}c@{}}
+\textbf{Deepthi Reddy Chelladi} \\
+\scriptsize
+\textit{Department of Computer Science} \\
+\textit{Florida Polytechnic University} \\
+Lakeland, Florida, USA \\
+dchelladi3522@floridapoly.edu
+\end{tabular}
+\end{tabular*}
+}
+
+\maketitle
+
+% ============================================================================
+% SECTION 1: Title
+% ============================================================================
+\section{Project Title}
+\textbf{Intelligent Sprint Analysis Using Agentic System for Startup Projects}
+
+This project proposes an intelligent sprint analysis system leveraging multi-agent large language models (LLMs) with retrieval-augmented generation (RAG) to provide real-time, explainable sprint health assessments for startups managing 2--3 GitHub repositories. The system integrates six data modalities---code changes, textual communications, temporal patterns, dependency graphs, sentiment analysis, and CI/CD metrics---processed through specialized agents for pattern recognition, blocker detection, and recommendation generation.
+
+% ============================================================================
+% SECTION 2: Team Members
+% ============================================================================
+\section{Team Members}
+
+\begin{itemize}
+    \item \textbf{Bibek Gupta} -- LLM Integration, Multi-Agent Architecture (bgupta2957@floridapoly.edu)
+    \item \textbf{Saarupya Sunkara} -- Data Engineering, GitHub API Integration, Feature Extraction (vsunkara3613@floridapoly.edu)
+    \item \textbf{Siwani Sah} -- Machine Learning Models, Evaluation Framework, Statistical Analysis (ssah2942@floridapoly.edu)
+    \item \textbf{Deepthi Reddy Chelladi} -- Frontend Development, Visualization Dashboard, User Experience (dchelladi3522@floridapoly.edu)
+\end{itemize}
+
+\noindent\textbf{Institution:} Florida Polytechnic University, Department of Computer Science, Lakeland, Florida, USA
+
+% ============================================================================
+% SECTION 3: Dataset and Materials
+% ============================================================================
+\section{Dataset and Materials}
+
+We construct a comprehensive multi-modal dataset from two primary sources: real GitHub data and synthetically generated sprint scenarios.
+
+\subsection{Real GitHub Data (Primary Source)}
+
+Using a custom GitHub API data collector (\texttt{src/scrapper/github.py}) and a local git data collector (\texttt{src/scrapper/local\_git.py}), we scraped development activity from three major open-source repositories. The local git ingestion strategy enables extraction of commits and diffs without API rate limits.
+
+\begin{table}[htbp]
+\centering
+\caption{Real GitHub Data Collection Summary}
+\label{tab:real_data}
+\begin{tabular}{l|r|r|r}
+\toprule
+\textbf{Repository} & \textbf{Documents} & \textbf{Sprints} & \textbf{Size} \\
+\midrule
+golang/go & 753 & 22 & 923 KB \\
+kubernetes/kubernetes & 568 & 16 & 906 KB \\
+torvalds/linux & 257 & 8 & 96 KB \\
+\midrule
+\textbf{Total} & \textbf{1,578} & \textbf{46} & \textbf{1.9 MB} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Data collection statistics include approximately 1,200 issues, 800 pull requests, and 2,000 commits processed across all repositories. The extended local git collector extracted 65,730 commits and 65,715 diffs from golang/go alone in approximately 40 seconds using batch diff extraction.
+
+\subsection{Synthetic Dataset Generation}
+
+To address the cold-start problem inherent to new organizations and to augment rare failure scenarios, we generated 5,000 synthetic sprint instances using a template-based generator (\texttt{src/data/synthetic\_generator.py}) with five realistic personas.
+
+\begin{table}[htbp]
+\centering
+\caption{Synthetic Sprint Personas and Configuration}
+\label{tab:personas}
+\begin{tabular}{l|c|c|c|l}
+\toprule
+\textbf{Persona} & \textbf{Weight} & \textbf{Issues} & \textbf{PRs} & \textbf{Purpose} \\
+\midrule
+commit\_first & 3.0 & 0--2 & 0--10 & Direct commits \\
+healthy\_flow & 2.0 & 3--15 & 5--20 & Balanced workflow \\
+blocked\_issues & 1.0 & 10--50 & 2--10 & Risk indicator \\
+pr\_bottleneck & 1.0 & 0--3 & 20--60 & Review bottleneck \\
+quiet\_sprint & 1.0 & 0--1 & 0--3 & Low activity \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Synthetic data validation confirmed that the risk distribution (20.2\% at-risk) closely matches real-world small-team patterns (17.4\% at-risk in real data), with feature ranges within expected bounds and 100\% data completeness.
+
+\subsection{Combined Training Dataset}
+
+The combined dataset (real + synthetic) comprises 5,040 labeled examples, split into stratified partitions:
+
+\begin{table}[htbp]
+\centering
+\caption{Training Dataset Composition}
+\label{tab:dataset_split}
+\begin{tabular}{l|r|r}
+\toprule
+\textbf{Dataset} & \textbf{Count} & \textbf{Percentage} \\
+\midrule
+Training & 4,032 & 80\% \\
+Validation & 504 & 10\% \\
+Test & 504 & 10\% \\
+\midrule
+\textbf{Total} & \textbf{5,040} & \textbf{100\%} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Class distribution in the training set maintains an 80/20 ratio: 3,222 not-at-risk (79.8\%) and 810 at-risk (20.2\%) sprints. For the baseline evaluation (M5), we use H3 splits: 253 training examples (177 synthetic + 76 real), 15 validation, and 19 real-only test examples, with 42.1\% at-risk in the test set.
+
+\subsection{Feature Engineering (18 Metrics per Sprint)}
+
+We extract 18 handcrafted features per sprint across five categories:
+
+\begin{itemize}
+    \item \textbf{Temporal (3):} \texttt{days\_span}, \texttt{issue\_age\_avg}, \texttt{pr\_age\_avg}
+    \item \textbf{Activity (6):} \texttt{total\_issues}, \texttt{total\_prs}, \texttt{total\_commits}, \texttt{issue\_resolution\_rate}, \texttt{pr\_merge\_rate}, \texttt{commit\_frequency}
+    \item \textbf{Code (3):} \texttt{total\_code\_changes}, \texttt{avg\_pr\_size}, \texttt{code\_concentration}
+    \item \textbf{Risk (4):} \texttt{stalled\_issues}, \texttt{unreviewed\_prs}, \texttt{abandoned\_prs}, \texttt{long\_open\_issues}
+    \item \textbf{Team (2):} \texttt{unique\_authors}, \texttt{author\_participation}
+\end{itemize}
+
+Figure~\ref{fig:dataset} illustrates the composition of our dataset combining real and synthetic data with stratified split strategy.
+
+\begin{figure}[htbp]
+\centerline{\includegraphics[width=\linewidth]{figure/5_dataset_composition.png}}
+\caption{Dataset Composition and Split Strategy. The dataset combines real sprint instances from GitHub with 5,000 synthetic scenarios, ensuring robust evaluation.}
+\label{fig:dataset}
+\end{figure}
+
+
+% ============================================================================
+% SECTION 4: Methodology, Implementation, and Current Progress
+% ============================================================================
+\section{Methodology, Implementation, and Current Progress}
+
+\subsection{Models and Techniques}
+
+Our system employs a multi-agent architecture orchestrated through LangGraph with six specialized agents:
+
+\begin{enumerate}
+    \item \textbf{Data Collector Agent}: Interfaces with GitHub GraphQL API to fetch repository events, normalize schemas, and detect sprint boundaries.
+    \item \textbf{Feature Engineering Agent}: Extracts multi-modal features across code, text, temporal, graph, sentiment, and CI/CD domains.
+    \item \textbf{Sprint Analyzer Agent}: Uses Llama-3-8B (quantized to 4-bit, $\sim$5GB RAM) for pattern identification and sprint health scoring.
+    \item \textbf{Risk Assessor Agent}: Predicts sprint outcomes and blockers using LLM reasoning augmented with RAG-retrieved historical cases.
+    \item \textbf{Recommender Agent}: Generates ranked actionable intervention strategies.
+    \item \textbf{Explainer Agent}: Produces natural language explanations with evidence citations from vector store.
+\end{enumerate}
+
+For baseline comparison, we implemented XGBoost gradient-boosted trees and zero-shot Llama-3-8B inference. The proposed system targets parameter-efficient fine-tuning using LoRA adapters ($r=16$, updating only 0.3\% of 7B parameters).
+
+
+\subsection{Agentic Pipeline Implementation}
+
+In addition to the baseline models, we have completed the implementation of the agentic pipeline for sprint analysis.
+
+The pipeline works in multiple stages:
+
+\begin{enumerate}
+    \item \textbf{Data Collection}: Collects issues, PRs, commits from GitHub
+    \item \textbf{Sprint Processing}: Converts data into sprint-level format
+    \item \textbf{RAG Layer}: Retrieves relevant past sprint data using embeddings
+    \item \textbf{Agent Reasoning}:
+    \begin{itemize}
+        \item Sprint Analyzer
+        \item Risk Assessor
+        \item Recommender
+        \item Explainer
+    \end{itemize}
+    \item \textbf{Final Output}: Gives sprint health + risks + recommendations
+\end{enumerate}
+
+This is a major milestone because the system now performs explainable multi-agent reasoning instead of just prediction.
+
+\subsection{Preprocessing Steps Completed}
+
+\begin{itemize}
+    \item \textbf{GitHub API Integration}: Full scraper for issues, PRs, commits, and diffs (\texttt{src/scrapper/github.py}).
+    \item \textbf{Local Git Ingestion}: Hybrid collector using local git for commits/diffs (zero API calls) and API for issues/PRs (\texttt{src/scrapper/local\_git.py}).
+    \item \textbf{Sprint Preprocessing}: Groups commits into 2-week sprint windows with velocity, risk labels, and contributor counts (\texttt{src/data/preprocessor.py}).
+    \item \textbf{ChromaDB Document Formatting}: Converts data to Chroma-compatible flat documents (\texttt{src/data/formatter.py}), producing 128,552 flat documents and 475 sprint-aligned documents from golang/go.
+    \item \textbf{Dataset Preparation}: Automated train/val/test splits with stratified sampling (\texttt{scripts/prepare\_training\_data.py}).
+\end{itemize}
+
+\subsection{Tools, Libraries, and Frameworks}
+
+\begin{itemize}
+    \item \textbf{ML/Statistical}: Python, scikit-learn, XGBoost, NumPy, Pandas, Matplotlib, Seaborn
+    \item \textbf{LLM}: Ollama (Llama-3-8B-Instruct, quantized), LoRA/PEFT for fine-tuning
+    \item \textbf{Vector Database}: ChromaDB with Sentence-BERT embeddings (all-MiniLM-L6-v2, 384 dimensions)
+    \item \textbf{Backend}: FastAPI (planned), LangGraph for agent orchestration
+    \item \textbf{Frontend}: Streamlit (planned)
+    \item \textbf{Infrastructure}: Docker Compose, PostgreSQL, Node.js/npm scripts
+    \item \textbf{Data Collection}: GitHub GraphQL API, local Git CLI
+\end{itemize}
+
+\subsection{Changes from Original Proposal}
+
+\begin{enumerate}
+    \item \textbf{Local Git Ingestion Strategy}: The original proposal relied solely on the GitHub API for data collection. Due to severe API rate limits, we developed a hybrid local git ingestion approach (\texttt{LocalGitScraper}), extracting PRs and issues from commit trailers (e.g., \texttt{Change-Id}, \texttt{Reviewed-on}, \texttt{Fixes \#N}) in offline mode. This resolved a high-impact risk and improved extraction throughput from 30+ minutes to $\sim$40 seconds for 65K commits.
+    \item \textbf{Feature Count Adjustment}: The proposal specified 120 features per sprint. In the current implementation, we extract 18 core metrics per sprint. The full 120-feature pipeline (including text embeddings, graph features, sentiment, and CI/CD metrics) is planned for subsequent milestones.
+    \item \textbf{H3 Split Strategy}: For baseline evaluation, we adopted an H3 split (70\% synthetic + 30\% real training, real-only validation/test) rather than the originally proposed temporal split, to better assess synthetic data augmentation effectiveness at this stage.
+\end{enumerate}
+
+\subsection{Milestones Completed}
+
+\begin{table}[htbp]
+\centering
+\caption{Milestone Completion Status (as of March 28, 2026)}
+\label{tab:milestones}
+\begin{tabular}{l|l|c}
+\toprule
+\textbf{Phase} & \textbf{Description} & \textbf{Status} \\
+\midrule
+M1 & Problem Definition \& Literature Review & 100\% \\
+M2 & Data Pipeline \& Collection & 100\% \\
+M3 & Synthetic Data Generation (5K sprints) & 100\% \\
+M4 & Feature Extraction (18 metrics) & 100\% \\
+M5 & Baseline Model Implementation & 100\% \\
+\midrule
+M6--M7 & Infrastructure \& Continued Collection & 0\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Literature Review}
+
+We conducted a comprehensive literature analysis examining 50+ peer-reviewed papers (2009--2024) from ACM, IEEE, and arXiv repositories spanning five domains: GitHub analytics~\cite{kalliamvakou2014promises}, LLM applications in software engineering~\cite{touvron2023llama, wang2024survey, feng2020codebert}, sprint prediction~\cite{choetkiertikul2018predicting}, explainable AI~\cite{ribeiro2016should}, and retrieval-augmented generation~\cite{lewis2020retrieval}. We identified three critical gaps: (1) over-engineered enterprise tools unsuitable for small teams, (2) limited cross-repository intelligence causing 34\% of startup sprint delays~\cite{bird2009putting}, and (3) lack of explainable AI for project management decision-making.
+
+\subsection{Source Code Developed}
+
+\begin{table}[htbp]
+\centering
+\caption{Implemented Source Code Modules}
+\label{tab:code}
+\begin{tabular}{l|r|l|c}
+\toprule
+\textbf{Module} & \textbf{Lines} & \textbf{Purpose} & \textbf{Status} \\
+\midrule
+Feature Extraction & 194 & 18-metric extraction & Tested \\
+Synthetic Generator & 124 & 5K sprint scenarios & Tested \\
+Dataset Preparation & 101 & Train/val/test splits & Tested \\
+Data Preprocessor & 150+ & Pipeline orchestration & Integrated \\
+ChromaDB Formatter & 100+ & Document conversion & Integrated \\
+Baseline Notebook & 1000+ & XGBoost + LLM baselines & Complete \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ============================================================================
+% SECTION 5: Preliminary Results and Analysis
+% ============================================================================
+\section{Preliminary Results and Analysis}
+
+We report preliminary results from Milestone 5 (Baseline Implementation), evaluating three model categories on a shared real-only test set ($n=19$, 42.1\% at-risk).
+
+\subsection{Baseline Models Evaluated}
+
+\begin{enumerate}
+    \item \textbf{Rule-Based (Label Oracle)}: Hand-crafted threshold logic from the \texttt{RiskLabeler} (e.g., \texttt{stalled\_issues $\geq$ 3} $\rightarrow$ +0.30). This is \textit{not} a predictive baseline---it directly generates training labels and achieves trivially perfect F1=1.0. Included only as a sanity check for label consistency.
+    \item \textbf{XGB-Baseline}: Gradient-boosted trees (XGBoost) trained on real-only data (76 examples). Hyperparameters tuned via 3-fold stratified CV grid search.
+    \item \textbf{XGB-H3}: XGBoost trained on synthetic + real (H3 augmented) data (253 examples: 177 synthetic, 76 real).
+    \item \textbf{Single-LLM}: Zero-shot Llama-3-8B prompt with raw metric summary (temperature=0, no fine-tuning). Provides a lower-bound reference for non-fine-tuned language models.
+\end{enumerate}
+
+\subsection{Performance Metrics}
+
+\begin{table}[htbp]
+\centering
+\caption{M5 Baseline Performance Benchmarks (evaluated on shared real-only test set, $n=19$)}
+\label{tab:results}
+\begin{tabular}{l|c|c|c|c|c}
+\toprule
+\textbf{Model} & \textbf{Acc.} & \textbf{Prec.} & \textbf{Recall} & \textbf{F1} & \textbf{AUC} \\
+\midrule
+XGB-Baseline (real-only) & 0.947 & 1.000 & 0.875 & 0.933 & 1.000 \\
+XGB-H3 (syn+real) & 0.947 & 1.000 & 0.875 & 0.933 & 0.972 \\
+Single-LLM (zero-shot) & 0.526 & 0.333 & 0.125 & 0.182 & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Interpretation of Results}
+
+\textbf{XGBoost baselines exceed initial expectations.} Both XGB-Baseline (real-only training) and XGB-H3 (synthetic-augmented training) achieve identical F1=0.933 on the real-only test set, with perfect precision (1.000) and strong recall (0.875). This demonstrates that the 18 handcrafted features effectively capture sprint risk signals, and suggests that the rule-based labeling scheme produces learnable patterns for gradient-boosted trees.
+
+\textbf{Synthetic augmentation shows equivalent performance.} The fact that XGB-H3 (trained on 253 examples including 177 synthetic) achieves identical performance to XGB-Baseline (trained on only 76 real examples) validates the quality of our synthetic data generation. The synthetic data does not degrade model performance, confirming its utility for cold-start deployment scenarios.
+
+\textbf{Zero-shot LLM baseline is significantly weaker.} The Single-LLM model achieves only F1=0.182, well below both XGBoost baselines. This is expected behavior for an un-fine-tuned, zero-shot prompt-based approach operating on raw numeric features without contextual understanding. This result establishes a clear lower bound and underscores the value that our proposed LoRA fine-tuning and RAG-enhanced multi-agent pipeline aims to deliver.
+
+\textbf{Current results are promising but require further validation.} The XGBoost F1=0.933 already exceeds our target of $\geq$0.85. However, the small test set ($n=19$) limits statistical confidence. Planned next steps include expanding real data collection to 9,000 sprints from 500 organizations, implementing the full 120-feature pipeline, and conducting rigorous temporal split evaluation with k-fold cross-validation and statistical testing (paired t-tests with Bonferroni correction).
+
+% ============================================================================
+% SECTION 6: Updated Timeline
+% ============================================================================
+\section{Updated Timeline}
+
+\subsection{Remaining Tasks}
+
+Based on completed milestones M1--M5 (Weeks 1--5), the following tasks remain:
+
+\begin{enumerate}
+    \item \textbf{Infrastructure Setup (M6)}: PostgreSQL, ChromaDB, Ollama, Docker Compose deployment.
+    \item \textbf{Expanded Data Collection (M7)}: Target 9,000 sprint instances from 500 startup organizations.
+    \item \textbf{LoRA Fine-Tuning (M7)}: Parameter-efficient fine-tuning of Llama-3-8B with LoRA adapters.
+    \item \textbf{RAG Implementation (M8)}: ChromaDB evidence retrieval pipeline integration.
+    \item \textbf{Multi-Agent Integration (M9)}: End-to-end 6-agent pipeline via LangGraph.
+    \item \textbf{Evaluation Framework (M10)}: Automated evaluation, statistical testing, human evaluation.
+    \item \textbf{Dashboard Development (M11)}: Streamlit frontend with interactive visualizations.
+    \item \textbf{Systems Optimization (M12)}: Latency optimization ($<$60s p95), memory optimization ($<$14GB).
+    \item \textbf{Documentation \& Report (M13)}: Technical documentation, academic paper.
+    \item \textbf{Presentation (M14)}: 20-minute presentation with live demonstration.
+\end{enumerate}
+
+\subsection{Updated Project Timeline with Responsibilities}
+
+\begin{table*}[htbp]
+\centering
+\caption{Updated Project Timeline (Remaining Milestones)}
+\label{tab:updated_timeline}
+\begin{tabular}{>{\raggedright\arraybackslash}p{2.5cm}|p{5cm}|p{5cm}}
+\toprule
+\textbf{Week / Date} & \textbf{Milestone} & \textbf{Key Deliverables} \\
+\midrule
+Week 6 & \textbf{M6: System Architecture} & LangGraph orchestration, \\
+Mar 24--30 & \& Infrastructure Setup & Docker Compose, DB setup \\
+\midrule
+Week 7 & \textbf{M7: LoRA Fine-Tuning} & LoRA adapters trained; \\
+Mar 31--Apr 6 & Hyperparameter tuning & validation F1 $\geq$0.82 \\
+\midrule
+Week 8 & \textbf{M8: RAG Implementation} & ChromaDB integration; \\
+Apr 7--13 & Embedding generation & evidence retrieval pipeline \\
+\midrule
+Week 9 & \textbf{M9: Multi-Agent Integration} & End-to-end 6-agent pipeline; \\
+Apr 14--20 & Agent orchestration, testing & integrated system, unit tests \\
+\midrule
+Week 10 & \textbf{M10: Evaluation Framework} & Automated evaluation; statistical \\
+Apr 21--27 & Statistical testing & tests, comparison analysis \\
+\midrule
+Week 11 & \textbf{M11: Dashboard} & Interactive Streamlit dashboard; \\
+Apr 28--May 4 & Streamlit frontend & functional prototype \\
+\midrule
+Week 12 & \textbf{M12: Optimization} & Latency $<$60s p95; RAM $<$14GB; \\
+May 5--11 & Performance profiling & benchmark results \\
+\midrule
+Week 13 & \textbf{M13: Documentation} & Complete technical documentation; \\
+May 12--18 & Writing, final testing & academic paper draft \\
+\midrule
+Week 14 & \textbf{M14: Presentation} & 20-min presentation; live demo \\
+May 19--25 & Demo preparation & (before Week 15) \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\subsection{Team Member Contributions Summary}
+
+All team members have contributed equally to the project. Each member holds a 25\% contribution share, with responsibilities distributed across complementary domains to maximize coverage and parallel progress.
+
+\begin{table}[htbp]
+\centering
+\caption{Team Member Contribution Overview (Equal Contribution: 25\% Each)}
+\label{tab:contributions}
+\begin{tabular}{l|p{5.5cm}}
+\toprule
+\textbf{Member} & \textbf{Completed / Planned Responsibilities} \\
+\midrule
+Bibek Gupta & LLM integration; multi-agent architecture design; RAG implementation; system optimization \\
+\midrule
+Saarupya Sunkara & GitHub API \& local git data collection; feature engineering pipeline; multi-agent integration; system optimization \\
+\midrule
+Siwani Sah & ML model development (XGBoost baselines, LoRA fine-tuning); evaluation framework; statistical analysis \\
+\midrule
+Deepthi Reddy Chelladi & Frontend dashboard (Streamlit); evaluation framework; visualization design; user experience \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ============================================================================
+% SECTION 7: Project Repository
+% ============================================================================
+\section{Project Repository}
+
+\begin{itemize}
+    \item \textbf{Main Repository:} \url{https://github.com/bibekgupta3333/repo-sprint}
+    \item \textbf{Agentic Pipeline:} \url{https://github.com/saarupya999/repo-sprint/tree/agentic_pipeline/Agentic_pipeline}
+\end{itemize}
+
+% ============================================================================
+% SECTION 8: References
+% ============================================================================
+\begin{thebibliography}{00}
+
+\bibitem{Kalliamvakou2014}
+E. Kalliamvakou et al., "The promises and perils of mining GitHub," 2014.
+
+\bibitem{Usman2014}
+M. Usman et al., "Effort estimation in agile software development," 2014.
+
+\bibitem{Bird2009}
+C. Bird et al., "Using socio-technical networks to predict failures," 2009.
+
+\bibitem{Touvron2023}
+H. Touvron et al., "Llama 2," 2023.
+
+\bibitem{Wang2024}
+Y. Wang et al., "LLMs for code generation," 2024.
+
+\bibitem{Feng2020}
+Z. Feng et al., "CodeBERT," 2020.
+
+\bibitem{Choetkiertikul2018}
+M. Choetkiertikul et al., "Predicting delays in software projects," 2018.
+
+\bibitem{Ribeiro2016}
+M. Ribeiro et al., "Why should I trust you?", 2016.
+
+\bibitem{Lewis2020}
+P. Lewis et al., "Retrieval-augmented generation," 2020.
+
+\bibitem{Hu2021}
+E. Hu et al., "LoRA," 2021.
+
+\bibitem{Li2022}
+T. Li et al., "Developer chat mining," 2022.
+
+\bibitem{OpenAI2023}
+OpenAI, "GPT-4 Technical Report," 2023.
+
+\end{thebibliography}
+
+\end{document}

@@ -6,7 +6,7 @@ Each agent is a production-ready node in the LangGraph orchestration.
 import logging
 import json
 from typing import Optional, Any
-from src.agents.state import OrchestratorState, RiskItem, Recommendation, SprintMetrics
+from src.agents.state import OrchestratorState, RiskItem, Recommendation, SprintMetrics, RAGContext
 from src.agents.tools import ToolRegistry
 from src.agents.llm_config import OllamaClient, SYSTEM_PROMPTS
 
@@ -135,36 +135,66 @@ class FeatureEngineerAgent:
 
 class EmbeddingAgent:
     """
-    Converts features to embeddings and retrieves similar historical sprints.
-    Uses ChromaDB for RAG with local embeddings (no Ollama required).
+    Retrieves similar historical sprints from ChromaDB for RAG context.
+    Uses SprintChromaDB with local embeddings (all-MiniLM-L6-v2, no Ollama).
+    Populates state.rag_context with full documents and citation URLs.
     """
 
     def __init__(self, tool_registry: ToolRegistry, ollama_client: Optional[OllamaClient] = None):
         self.vector_tool = tool_registry.vector_tool
         self.logger = logging.getLogger(self.__class__.__name__)
+        self._chroma: Optional[Any] = None
+
+    def _get_chroma(self):
+        """Lazy-init SprintChromaDB."""
+        if self._chroma is None:
+            from src.chromadb import SprintChromaDB
+            self._chroma = SprintChromaDB()
+        return self._chroma
 
     def execute(self, state: OrchestratorState) -> OrchestratorState:
-        """Execute embedding and RAG retrieval using local ChromaDB embeddings."""
+        """Execute RAG retrieval against ChromaDB sprint collection."""
         try:
-            self.logger.info("Generating embeddings and retrieving similar sprints...")
+            self.logger.info("Retrieving similar sprints from ChromaDB...")
+            chroma = self._get_chroma()
 
-            # Build context text for embedding
-            context_text = self._build_context_text(state)
+            # Determine owner/repo from first repository in state
+            owner, repo = self._parse_owner_repo(state)
 
-            # Retrieve similar sprints from ChromaDB (uses local embeddings, no Ollama)
-            # ChromaDB will automatically embed using its default local embedding model
-            similar_result = self.vector_tool.find_similar_sprints_by_text(context_text, k=5)
-            if similar_result["status"] == "success":
-                state.similar_sprint_ids = [
-                    s["sprint_id"] for s in similar_result["similar_sprints"]
-                ]
-                self.logger.info(f"  ✓ Retrieved {len(state.similar_sprint_ids)} similar sprints (local embeddings)")
+            # Query ChromaDB with current sprint features
+            rag_result = chroma.query_similar_sprints(
+                owner=owner,
+                repo=repo,
+                sprint_id=state.sprint_id,
+                features=state.features if isinstance(state.features, dict) else None,
+                k=5,
+            )
 
-            # Store embedding representation (simulated for compatibility)
-            state.vector_embeddings["sprint_context"] = self._simple_embedding(context_text)
+            # Populate state with RAG context
+            similar = rag_result.get("similar_sprints", [])
+            state.similar_sprint_ids = [s["sprint_id"] for s in similar]
+            state.evidence_citations = rag_result.get("evidence_citations", [])
 
+            state.rag_context = RAGContext(
+                similar_sprints=similar,
+                evidence_citations=rag_result.get("evidence_citations", []),
+            )
+
+            # Store formatted context text for downstream LLM prompt injection
+            state.vector_embeddings["rag_context_text"] = [
+                float(len(rag_result.get("context_text", "")))
+            ]
+            # attach the full text as a state field agents can read
+            if not hasattr(state, "_rag_context_text"):
+                object.__setattr__(state, "_rag_context_text", rag_result.get("context_text", ""))
+
+            self.logger.info(
+                f"  ✓ Retrieved {len(similar)} similar sprints, "
+                f"{len(state.evidence_citations)} citations"
+            )
             state.execution_logs.append(
-                f"[embedding_agent] Generated local embeddings, found {len(state.similar_sprint_ids)} similar sprints"
+                f"[embedding_agent] RAG retrieval: {len(similar)} similar sprints, "
+                f"{len(state.evidence_citations)} evidence citations"
             )
 
         except Exception as e:
@@ -173,28 +203,16 @@ class EmbeddingAgent:
 
         return state
 
-    def _simple_embedding(self, text: str) -> list:
-        """Create a simple embedding representation without Ollama."""
-        # Hash-based pseudo-embedding for compatibility
-        hash_val = hash(text) % 256
-        return [float(hash_val / 256.0)] * 10  # 10-dim vector
-
-    def _build_context_text(self, state: OrchestratorState) -> str:
-        """Build text for embedding."""
-        parts = [
-            f"Sprint {state.sprint_id or 'N/A'}",
-            f"Issues: {len(state.github_issues)}",
-            f"PRs: {len(state.github_prs)}",
-            f"Commits: {len(state.commits)}",
-        ]
-
-        # Add feature summary
-        if state.features:
-            for category, metrics in state.features.items():
-                if isinstance(metrics, dict):
-                    parts.append(f"{category}: {', '.join(f'{k}={v:.2f}' for k, v in list(metrics.items())[:3])}")
-
-        return "\n".join(parts)
+    @staticmethod
+    def _parse_owner_repo(state: OrchestratorState) -> tuple[str, str]:
+        """Extract owner/repo from the first repository URL or slug."""
+        for r in state.repositories:
+            # Handle full URLs or owner/repo slugs
+            slug = r.replace("https://github.com/", "").strip("/")
+            parts = slug.split("/")
+            if len(parts) >= 2:
+                return parts[0], parts[1]
+        return "", ""
 
 
 class LLMReasonerAgent:
@@ -214,16 +232,8 @@ class LLMReasonerAgent:
             self.logger.info("Running LLM analysis...")
             strict_mode = state.eval_mode == "strict"
 
-            # Build RAG context
-            rag_context = {
-                "similar_sprints": state.similar_sprint_ids,
-                "feature_vector_length": len(state.feature_vector),
-                "dependency_risk_propagation": (
-                    state.dependency_graph.get("risk_propagation", {})
-                    if isinstance(state.dependency_graph, dict)
-                    else {}
-                ),
-            }
+            # Build rich RAG context from embedded sprint data
+            rag_context = self._build_rag_context(state)
 
             # Provide richer, multi-modal context so sprint analysis is not reduced
             # to a narrow temporal/risk snapshot.
@@ -271,6 +281,35 @@ class LLMReasonerAgent:
 
         return state
 
+    def _build_rag_context(self, state: OrchestratorState) -> dict:
+        """Build rich RAG context dict from embedded sprint data for LLM prompts."""
+        rag = state.rag_context
+        context: dict[str, Any] = {
+            "similar_sprints": state.similar_sprint_ids,
+            "feature_vector_length": len(state.feature_vector),
+            "dependency_risk_propagation": (
+                state.dependency_graph.get("risk_propagation", {})
+                if isinstance(state.dependency_graph, dict)
+                else {}
+            ),
+        }
+
+        # Inject full historical sprint context if available from EmbeddingAgent
+        if rag:
+            context["similar_sprint_details"] = []
+            for s in (rag.similar_sprints or [])[:5]:
+                context["similar_sprint_details"].append({
+                    "sprint_id": s.get("sprint_id", ""),
+                    "repo": s.get("repo", ""),
+                    "similarity": s.get("similarity", 0),
+                    "risk_score": s.get("risk_score", 0),
+                    "is_at_risk": s.get("is_at_risk", False),
+                    "content": (s.get("content") or "")[:600],
+                })
+            context["evidence_citations"] = rag.evidence_citations or []
+
+        return context
+
 
 class RiskAssessorAgent:
     """
@@ -288,10 +327,13 @@ class RiskAssessorAgent:
             self.logger.info("Assessing risks...")
             strict_mode = state.eval_mode == "strict"
 
-            # Analyze risks using LLM
+            # Analyze risks using LLM with rich RAG context
+            rag_ctx: dict[str, Any] = {"similar_sprints": state.similar_sprint_ids}
+            if state.rag_context and state.rag_context.evidence_citations:
+                rag_ctx["evidence_citations"] = state.rag_context.evidence_citations
             risk_result = self.llm_tool.analyze_risks(
                 features=state.features,
-                rag_context={"similar_sprints": state.similar_sprint_ids},
+                rag_context=rag_ctx,
             )
 
             if risk_result.get("error"):
@@ -402,12 +444,21 @@ class RecommenderAgent:
                 for r in state.identified_risks
             ]
 
-            # Generate recommendations
+            # Generate recommendations with evidence citations
+            rag_ctx: dict[str, Any] = {"similar_sprints": state.similar_sprint_ids}
+            if state.rag_context:
+                if state.rag_context.evidence_citations:
+                    rag_ctx["evidence_citations"] = state.rag_context.evidence_citations
+                # Include similar sprint detail summaries for precedent matching
+                if state.rag_context.similar_sprints:
+                    rag_ctx["similar_sprint_details"] = [
+                        {"sprint_id": s.get("sprint_id"), "risk_score": s.get("risk_score", 0),
+                         "is_at_risk": s.get("is_at_risk", False)}
+                        for s in state.rag_context.similar_sprints[:3]
+                    ]
             recommendation_result = self.llm_tool.generate_recommendations(
                 risks=risk_dicts,
-                rag_context={
-                    "similar_sprints": state.similar_sprint_ids,
-                },
+                rag_context=rag_ctx,
             )
             recommendations = recommendation_result.get("recommendations", [])
             if recommendation_result.get("error"):
@@ -484,16 +535,19 @@ class RecommenderAgent:
 class ExplainerAgent:
     """
     Generates natural language narratives with evidence attribution.
-    Synthesizes all agent outputs into readable summary.
+    Synthesizes all agent outputs into readable summary with GitHub citations.
     """
 
     def __init__(self):
         self.logger = logging.getLogger(self.__class__.__name__)
 
     def execute(self, state: OrchestratorState) -> OrchestratorState:
-        """Generate explanation."""
+        """Generate explanation with evidence citations."""
         try:
             self.logger.info("Generating narrative explanation...")
+
+            # Gather evidence from ChromaDB for the current sprint
+            self._enrich_evidence(state)
 
             narrative = self._build_narrative(state)
             state.narrative_explanation = narrative
@@ -509,6 +563,49 @@ class ExplainerAgent:
             self.logger.error(f"Explainer error: {e}")
 
         return state
+
+    def _enrich_evidence(self, state: OrchestratorState) -> None:
+        """Fetch sprint evidence (issues/PRs/commits) from ChromaDB for citations."""
+        try:
+            from src.chromadb import SprintChromaDB
+            chroma = SprintChromaDB()
+
+            # Parse owner/repo
+            owner, repo = "", ""
+            for r in state.repositories:
+                slug = r.replace("https://github.com/", "").strip("/")
+                parts = slug.split("/")
+                if len(parts) >= 2:
+                    owner, repo = parts[0], parts[1]
+                    break
+
+            if not owner:
+                return
+
+            evidence = chroma.get_sprint_evidence(
+                owner=owner, repo=repo,
+                sprint_id=state.sprint_id or "",
+            )
+
+            # Collect citation URLs from evidence
+            citations: list[str] = list(state.evidence_citations or [])
+            for issue in evidence.get("issues", [])[:5]:
+                url = issue.get("url", "")
+                if url and url not in citations:
+                    citations.append(url)
+            for pr in evidence.get("prs", [])[:5]:
+                url = pr.get("url", "")
+                if url and url not in citations:
+                    citations.append(url)
+            for commit in evidence.get("commits", [])[:3]:
+                url = commit.get("url", "")
+                if url and url not in citations:
+                    citations.append(url)
+
+            state.evidence_citations = citations
+
+        except Exception as e:
+            self.logger.warning(f"Evidence enrichment skipped: {e}")
 
     def _build_narrative(self, state: OrchestratorState) -> str:
         """Build natural language narrative."""
@@ -556,10 +653,28 @@ class ExplainerAgent:
                     lines.append(f"  {desc}")
             lines.append("")
 
-        # Evidence
-        if state.similar_sprint_ids:
+        # Evidence — cite similar sprints and GitHub URLs
+        rag = state.rag_context
+        if rag and rag.similar_sprints:
+            lines.append("## Evidence Base")
+            lines.append(f"Analysis grounded in {len(rag.similar_sprints)} similar historical sprints:\n")
+            for s in rag.similar_sprints[:5]:
+                sid = s.get("sprint_id", "unknown")
+                repo = s.get("repo", "")
+                sim_score = s.get("similarity", 0)
+                risk = s.get("risk_score", 0)
+                lines.append(f"- **{sid}** ({repo}) — similarity: {sim_score:.2f}, risk: {risk:.2f}")
+            lines.append("")
+        elif state.similar_sprint_ids:
             lines.append("## Evidence Base")
             lines.append(f"Analysis based on {len(state.similar_sprint_ids)} similar historical sprints")
+            lines.append("")
+
+        # Citations
+        if state.evidence_citations:
+            lines.append("## Citations")
+            for url in state.evidence_citations[:15]:
+                lines.append(f"- {url}")
             lines.append("")
 
         return "\n".join(lines)

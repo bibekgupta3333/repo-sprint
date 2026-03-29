@@ -563,11 +563,25 @@ class LLMInferenceTool:
         features: dict[str, float],
         rag_context: Optional[dict],
     ) -> str:
-        """Build structured prompt for completion prediction."""
+        """Build structured prompt for completion prediction with RAG context."""
         metrics_str = json.dumps(features, indent=2)
-        rag_str = json.dumps(rag_context or {}, indent=2)
 
-        return f"""Analyze this sprint and predict completion probability:
+        # Format RAG context — include full historical sprint details when available
+        rag_parts = []
+        if rag_context:
+            for detail in rag_context.get("similar_sprint_details", []):
+                rag_parts.append(
+                    f"Sprint {detail.get('sprint_id', '?')} ({detail.get('repo', '')}) — "
+                    f"risk: {detail.get('risk_score', 0):.2f}, at-risk: {detail.get('is_at_risk', False)}\n"
+                    f"{detail.get('content', '')}"
+                )
+            evidence = rag_context.get("evidence_citations", [])
+            if evidence:
+                rag_parts.append("Evidence URLs: " + ", ".join(evidence[:5]))
+
+        rag_str = "\n---\n".join(rag_parts) if rag_parts else "No historical data available."
+
+        return f"""Analyze this sprint and predict completion probability.
 
 **Current Metrics:**
 {metrics_str}
@@ -575,12 +589,14 @@ class LLMInferenceTool:
 **Similar Historical Sprints (RAG Context):**
 {rag_str}
 
+Cite specific GitHub issues, PRs, or commits (by URL or number) when explaining your reasoning.
+
 Provide JSON response with:
 {{
   "completion_probability": <0-100>,
   "health_status": "on_track|at_risk|critical",
   "confidence_score": <0-1>,
-  "reasoning": "<brief explanation>"
+  "reasoning": "<explanation citing evidence from similar sprints>"
 }}
 """
 
@@ -618,11 +634,24 @@ Rules:
         risks: list[dict],
         rag_context: Optional[dict],
     ) -> str:
-        """Build prompt for recommendation generation."""
+        """Build prompt for recommendation generation with evidence citations."""
         risks_str = json.dumps(risks, indent=2)
-        precedent_str = json.dumps(rag_context or {}, indent=2)
 
-        return f"""Generate interventions for these sprint risks:
+        # Build precedent block from RAG context
+        precedent_parts = []
+        if rag_context:
+            for detail in rag_context.get("similar_sprint_details", []):
+                precedent_parts.append(
+                    f"Sprint {detail.get('sprint_id', '?')} — "
+                    f"risk: {detail.get('risk_score', 0):.2f}, at-risk: {detail.get('is_at_risk', False)}"
+                )
+            evidence = rag_context.get("evidence_citations", [])
+            if evidence:
+                precedent_parts.append("Evidence URLs: " + ", ".join(evidence[:5]))
+
+        precedent_str = "\n".join(precedent_parts) if precedent_parts else "No precedent data available."
+
+        return f"""Generate interventions for these sprint risks.
 
 **Identified Risks:**
 {risks_str}
@@ -630,15 +659,20 @@ Rules:
 **Successful Precedents:**
 {precedent_str}
 
+IMPORTANT: Each recommendation MUST include an "evidence_source" field that cites
+a specific GitHub issue, PR, commit URL, or historical sprint ID as evidence for why
+this intervention is recommended. If no specific URL is available, cite the similar
+sprint ID (e.g., "Based on sprint_003 which had similar risk patterns").
+
 Return JSON array of recommendations:
 [
   {{
     "title": "<action>",
-        "description": "<brief description>",
+    "description": "<brief description>",
     "priority": "high|medium|low",
     "expected_impact": "<what improves>",
-        "action": "<specific next step>",
-    "evidence_source": "<precedent reference>"
+    "action": "<specific next step>",
+    "evidence_source": "<GitHub URL or sprint reference>"
   }}
 ]
 
