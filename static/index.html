@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Sprint Intelligence — Multi-Agent Analysis System</title>
+<meta name="description" content="Intelligent Sprint Analysis Using Agentic System for Startup Projects. Multi-agent LLM system with RAG-enhanced explainability for real-time sprint health assessments."/>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script>
+(() => {
+  try {
+    const key = 'sprint-ui.theme.v1';
+    const stored = localStorage.getItem(key);
+    const prefersLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+    const theme = (stored === 'light' || stored === 'dark') ? stored : (prefersLight ? 'light' : 'dark');
+    document.documentElement.setAttribute('data-theme', theme);
+  } catch (_) {
+    document.documentElement.setAttribute('data-theme', 'dark');
+  }
+})();
+</script>
+<link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+
+<div class="toast-container" id="toast-container"></div>
+
+<div class="app-layout">
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- Sidebar Navigation                                              -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<aside class="sidebar">
+  <div class="sidebar-brand">
+    <div class="logo">⚡</div>
+    <div class="brand-text">
+      <div class="brand-name">Sprint Intelligence</div>
+      <div class="brand-sub">Multi-Agent LLM System</div>
+    </div>
+  </div>
+
+  <nav class="sidebar-nav">
+    <div class="nav-section">Main</div>
+    <a class="nav-item" data-page="dashboard" onclick="navigateTo('dashboard'); renderDashboard();">
+      <span class="icon">📊</span><span>Dashboard</span>
+    </a>
+    <a class="nav-item active" data-page="analyze" onclick="navigateTo('analyze')">
+      <span class="icon">🔬</span><span>Sprint Analysis</span>
+    </a>
+    <a class="nav-item" data-page="results" onclick="navigateTo('results')">
+      <span class="icon">📋</span><span>Results</span>
+    </a>
+
+    <div class="nav-section">Views</div>
+    <a class="nav-item" data-page="dependencies" onclick="navigateTo('dependencies')">
+      <span class="icon">🔗</span><span>Dependencies</span>
+    </a>
+    <a class="nav-item" data-page="recommendations" onclick="navigateTo('recommendations')">
+      <span class="icon">💡</span><span>Recommendations</span>
+    </a>
+
+    <div class="nav-section">System</div>
+    <a class="nav-item" data-page="settings" onclick="navigateTo('settings')">
+      <span class="icon">⚙️</span><span>Settings</span>
+    </a>
+  </nav>
+
+  <div class="sidebar-footer">
+    <div style="display:flex;align-items:center;justify-content:center;gap:.35rem;margin-bottom:.3rem">
+      <div id="health-dot" style="width:6px;height:6px;border-radius:50%;background:var(--amber)"></div>
+      <span id="health-text">Connecting…</span>
+    </div>
+    Florida Polytechnic University<br/>
+    Dept. of Computer Science
+  </div>
+</aside>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- Main Content Area                                                -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<main class="main-content">
+
+  <div class="page-header">
+    <div>
+      <h1 id="page-title">Sprint Analysis</h1>
+      <p class="page-desc" id="page-desc">Configure and run agent inference pipeline</p>
+    </div>
+    <div class="page-header-actions">
+      <button class="btn btn-secondary btn-sm theme-toggle-btn" id="theme-toggle-btn" onclick="toggleTheme()" aria-label="Toggle color theme">
+        🌙 Dark
+      </button>
+      <button class="btn btn-ghost btn-sm command-trigger" onclick="openCommandPalette()" aria-label="Open command palette">
+        ⌘/Ctrl + K
+      </button>
+    </div>
+  </div>
+
+  <div class="page-body">
+
+    <!-- ═══ Dashboard Page ═══ -->
+    <div class="page-view" id="page-dashboard">
+      <div id="dashboard-content">
+        <div class="card" style="text-align:center;padding:3rem">
+          <div style="font-size:2rem;margin-bottom:.5rem">🚀</div>
+          <div style="font-size:1rem;font-weight:600;margin-bottom:.25rem">No Analysis Yet</div>
+          <div style="font-size:.82rem;color:var(--text-sec);margin-bottom:1rem">Run your first sprint analysis to see the dashboard.</div>
+          <button class="btn btn-primary" onclick="navigateTo('analyze')">Go to Analysis</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ Analyze Page ═══ -->
+    <div class="page-view active" id="page-analyze">
+
+      <!-- Agent Pipeline Visualization -->
+      <div class="card" style="margin-bottom:1rem">
+        <div class="card-title"><span class="icon">🧠</span> Agent Pipeline (11 Agents)</div>
+        <div class="pipeline-container">
+          <div class="pipeline">
+            <div class="agent-node"><div class="node-dot">🔀</div><div class="node-label">Router</div></div>
+            <div class="agent-node"><div class="node-dot">📥</div><div class="node-label">Data Collector</div></div>
+            <div class="agent-node"><div class="node-dot">🔗</div><div class="node-label">Dep Graph</div></div>
+            <div class="agent-node"><div class="node-dot">⚙️</div><div class="node-label">Feature Eng.</div></div>
+            <div class="agent-node"><div class="node-dot">🧬</div><div class="node-label">Synthetic Gen.</div></div>
+            <div class="agent-node"><div class="node-dot">🧲</div><div class="node-label">Embedding RAG</div></div>
+            <div class="agent-node"><div class="node-dot">🤖</div><div class="node-label">LLM Reasoner</div></div>
+            <div class="agent-node"><div class="node-dot">📈</div><div class="node-label">Sprint Analyzer</div></div>
+            <div class="agent-node"><div class="node-dot">🎓</div><div class="node-label">LoRA Training</div></div>
+            <div class="agent-node"><div class="node-dot">🛡️</div><div class="node-label">Risk Assessor</div></div>
+            <div class="agent-node"><div class="node-dot">💡</div><div class="node-label">Recommender</div></div>
+            <div class="agent-node"><div class="node-dot">📝</div><div class="node-label">Explainer</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Input Configuration -->
+      <div class="grid-2" style="margin-bottom:1rem">
+
+        <!-- Left: Sprint JSON Input -->
+        <div class="card">
+          <div class="card-title"><span class="icon">📄</span> Input Source</div>
+
+          <div class="tab-bar" id="input-mode-tabs">
+            <div class="tab-item active" id="tab-input-json" onclick="setInputMode('json')">JSON Input</div>
+            <div class="tab-item" id="tab-input-query" onclick="setInputMode('query')">Query Text</div>
+          </div>
+
+          <div id="json-input-pane" class="input-pane">
+            <div style="margin-bottom:.5rem">
+              <label style="font-size:.65rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:.3rem">Quick Load from Dataset</label>
+              <div class="file-selector" id="file-chips">
+                <div class="file-chip" style="opacity:.5">Loading datasets…</div>
+              </div>
+            </div>
+
+            <div class="json-editor-wrap">
+              <div class="editor-header">
+                <span>sprint.json</span>
+                <div class="editor-actions">
+                  <label class="btn btn-ghost btn-sm" style="cursor:pointer">
+                    📁 Upload
+                    <input type="file" accept=".json" style="display:none" onchange="handleFileUpload(this)">
+                  </label>
+                  <button class="btn btn-ghost btn-sm" onclick="formatJson()">✨ Format</button>
+                  <button class="btn btn-ghost btn-sm" onclick="clearJson()">✕ Clear</button>
+                </div>
+              </div>
+              <div class="form-group" style="margin:0">
+                <textarea id="sprint-json" rows="12" placeholder='Paste sprint JSON here, or use Quick Load above...
+
+Example format:
+{
+  "sprint_id": "sprint_001",
+  "repo": "owner/repo",
+  "issues": [...],
+  "pull_requests": [...],
+  "commits": [...]
+}'></textarea>
+              </div>
+            </div>
+          </div>
+
+          <div id="query-input-pane" class="input-pane input-pane-hidden">
+            <div class="form-group" style="margin-top:.15rem">
+              <label for="query-input">Sprint Query / Analyst Prompt</label>
+              <textarea id="query-input" rows="12" placeholder="Describe the sprint context and what you want inferred.
+
+Example:
+Analyze startup velocity and blocker risk for this sprint.
+Focus on dependency bottlenecks, review latency, and confidence of projected completion.
+Highlight top 3 interventions with evidence."></textarea>
+            </div>
+            <div style="font-size:.7rem;color:var(--text-muted);line-height:1.5">
+              Query mode uses freeform text as analyst context, while still running the full multi-agent pipeline for the selected organization/repository.
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: Config & Controls -->
+        <div class="card">
+          <div class="card-title"><span class="icon">🔧</span> Configuration</div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="owner-input">Repository Owner</label>
+              <input type="text" id="owner-input" placeholder="e.g. Mintplex-Labs" value=""/>
+            </div>
+            <div class="form-group">
+              <label for="repo-input">Repository Name</label>
+              <input type="text" id="repo-input" placeholder="e.g. anything-llm" value=""/>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="eval-mode">Evaluation Mode</label>
+            <select id="eval-mode">
+              <option value="resilient" selected>Resilient (Graceful fallbacks)</option>
+              <option value="strict">Strict (Fail on LLM errors)</option>
+            </select>
+          </div>
+
+          <div style="border-top:1px solid var(--border);padding-top:1rem;margin-top:.5rem">
+            <div class="card-title" style="margin-bottom:.75rem"><span class="icon">▶️</span> Run Inference</div>
+            <div class="btn-row">
+              <button class="btn btn-primary" id="btn-run" onclick="runAnalysis('live')">
+                🚀 Run Inference
+              </button>
+              <button class="btn btn-secondary" id="btn-mock" onclick="runAnalysis('mock')">
+                🧪 Demo (Mock Data)
+              </button>
+            </div>
+            <div style="font-size:.68rem;color:var(--text-dim);margin-top:.5rem">
+              Active input mode: <span id="input-mode-label">JSON Input</span>. Demo runs with built-in sample data.
+            </div>
+          </div>
+
+          <!-- Status bar -->
+          <div class="status-bar" id="status-bar">
+            <div class="status-msg">
+              <div class="status-pulse"></div>
+              <span id="status-text">Ready</span>
+            </div>
+            <div class="console-log" id="console-logs"></div>
+          </div>
+
+          <div class="error-banner" id="error-banner">
+            <strong>⚠ Error</strong>
+            <pre id="error-text"></pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="card empty-shortcuts" style="margin-bottom:1rem">
+        <div class="card-title"><span class="icon">🧭</span> Quick Start Shortcuts</div>
+        <div style="font-size:.73rem;color:var(--text-sec);margin-bottom:.55rem">
+          No sprint context loaded yet? Use these shortcuts to start fast.
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-secondary" onclick="loadSampleShortcut()">Load Sample</button>
+          <button class="btn btn-secondary" onclick="retrieveLatestShortcut()">Retrieve Latest</button>
+          <button class="btn btn-primary" onclick="startNewRunShortcut()">Start New Run</button>
+        </div>
+      </div>
+
+      <!-- Inline Results (shown after analysis) -->
+      <div class="results-area" id="results-area">
+
+        <div class="sec-title"><span>📊</span> Sprint Health Dashboard</div>
+        <div class="grid-auto" id="score-grid" style="margin-bottom:1.25rem"></div>
+
+        <div class="sec-title"><span>🔬</span> Research Metrics</div>
+        <div class="metrics-panel" id="run-metrics" style="margin-bottom:1.25rem"></div>
+
+        <!-- Charts -->
+        <div class="grid-2" style="margin-bottom:1.25rem">
+          <div class="card">
+            <div class="card-title"><span class="icon">📊</span> Health Radar</div>
+            <div class="chart-container"><canvas id="chart-radar"></canvas></div>
+          </div>
+          <div class="card">
+            <div class="card-title"><span class="icon">📊</span> Feature Breakdown</div>
+            <div class="chart-container"><canvas id="chart-features"></canvas></div>
+          </div>
+        </div>
+
+        <div class="grid-2" style="margin-bottom:1.25rem">
+          <div class="card">
+            <div class="card-title"><span class="icon">⚠️</span> Risk Distribution</div>
+            <div class="chart-container" style="height:240px"><canvas id="chart-risks"></canvas></div>
+          </div>
+          <div class="card">
+            <div class="card-title"><span class="icon">⚙️</span> Multi-Modal Features</div>
+            <div id="features-panel" style="max-height:240px;overflow-y:auto"></div>
+          </div>
+        </div>
+
+        <div class="sec-title acc-toggle" data-acc="exec-logs-body" onclick="toggleAccordion('exec-logs-body')">
+          <span class="arrow">▶</span><span>📋</span> Execution Logs &amp; Errors
+        </div>
+        <div class="acc-body" id="exec-logs-body">
+          <div class="acc-content" id="analyze-exec-logs"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ Results Page ═══ -->
+    <div class="page-view" id="page-results">
+      <div class="sec-title"><span>📊</span> Sprint Health Scores</div>
+      <div class="grid-auto" id="results-score-grid" style="margin-bottom:1.25rem">
+        <div class="stat-card"><div class="stat-label">Run an analysis first</div></div>
+      </div>
+
+      <div class="sec-title"><span>🛡️</span> Identified Risks <span id="results-risk-source"></span></div>
+      <div class="item-list" id="results-risks" style="margin-bottom:1.25rem">
+        <div class="item-card"><div class="item-desc">No analysis data yet.</div></div>
+      </div>
+
+      <div class="sec-title"><span>🧲</span> RAG Context &amp; Evidence</div>
+      <div class="rag-panel" id="results-rag" style="margin-bottom:1.25rem">
+        <div style="font-size:.72rem;color:var(--text-muted)">Run an analysis to see RAG context.</div>
+      </div>
+
+      <div class="sec-title"><span>📝</span> Sprint Intelligence Report</div>
+      <div class="narrative-box" id="results-narrative" style="margin-bottom:1.25rem">
+        No narrative generated yet. Run an analysis from the Sprint Analysis page.
+      </div>
+
+      <div class="sec-title acc-toggle" data-acc="results-exec-body" onclick="toggleAccordion('results-exec-body')">
+        <span class="arrow">▶</span><span>📋</span> Execution Logs
+      </div>
+      <div class="acc-body" id="results-exec-body">
+        <div class="acc-content" id="results-exec-logs"></div>
+      </div>
+    </div>
+
+    <!-- ═══ Dependencies Page ═══ -->
+    <div class="page-view" id="page-dependencies">
+      <div class="card">
+        <div class="card-title"><span class="icon">🔗</span> Cross-Repository Dependency Graph</div>
+        <div class="dep-graph-container" id="dep-graph-content">
+          <div style="font-size:.78rem;color:var(--text-muted);text-align:center;padding:2rem">
+            Run a sprint analysis to visualize cross-repository dependencies.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ Recommendations Page ═══ -->
+    <div class="page-view" id="page-recommendations">
+      <div class="sec-title"><span>💡</span> AI-Generated Recommendations <span id="recs-source-badge"></span></div>
+      <div class="item-list" id="recs-list" style="margin-bottom:1.25rem">
+        <div class="item-card"><div class="item-desc">No recommendations yet. Run an analysis first.</div></div>
+      </div>
+    </div>
+
+    <!-- ═══ Settings Page ═══ -->
+    <div class="page-view" id="page-settings">
+      <div class="card" style="margin-bottom:1rem">
+        <div class="settings-section">
+          <h3>⚙️ Analysis Settings</h3>
+          <div class="toggle-row">
+            <div class="toggle-info">
+              <div class="toggle-title">Auto-Refresh Results</div>
+              <div class="toggle-desc">Automatically poll for updated results every 30 seconds</div>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" onchange="toggleAutoRefresh(this.checked)">
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="toggle-row">
+            <div class="toggle-info">
+              <div class="toggle-title">Light Mode</div>
+              <div class="toggle-desc">Switch between dark and light interface themes</div>
+            </div>
+            <label class="toggle">
+              <input id="theme-toggle-switch" type="checkbox" onchange="toggleTheme(this.checked ? 'light' : 'dark')">
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="toggle-row">
+            <div class="toggle-info">
+              <div class="toggle-title">Show Raw JSON Output</div>
+              <div class="toggle-desc">Display raw orchestrator state JSON in results</div>
+            </div>
+            <label class="toggle">
+              <input type="checkbox">
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:1rem">
+        <div class="settings-section">
+          <h3>🤖 Model Configuration</h3>
+          <div class="form-row">
+            <div class="form-group">
+              <label>LLM Backend</label>
+              <input type="text" value="Ollama (Local)" disabled/>
+            </div>
+            <div class="form-group">
+              <label>Vector Store</label>
+              <input type="text" value="ChromaDB" disabled/>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Ollama Base URL</label>
+            <input type="text" value="http://localhost:11434" id="ollama-url"/>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="settings-section">
+          <h3>ℹ️ System Information</h3>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Version</label>
+              <input type="text" value="1.0.0 (Research Preview)" disabled/>
+            </div>
+            <div class="form-group">
+              <label>Architecture</label>
+              <input type="text" value="LangGraph Multi-Agent (11 Agents)" disabled/>
+            </div>
+          </div>
+          <div style="margin-top:.5rem;font-size:.72rem;color:var(--text-muted);line-height:1.6">
+            <strong style="color:var(--text-sec)">Research Project:</strong> Intelligent Sprint Analysis Using Agentic System for Startup Projects<br/>
+            <strong style="color:var(--text-sec)">Institution:</strong> Florida Polytechnic University — Department of Computer Science<br/>
+            <strong style="color:var(--text-sec)">Team:</strong> Bibek Gupta · Saarupya Sunkara · Siwani Sah · Deepthi Reddy Chelladi
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</main>
+</div>
+
+<div id="explain-backdrop" class="drawer-backdrop" onclick="closeExplainabilityDrawer()"></div>
+<aside id="explain-drawer" class="explain-drawer" aria-hidden="true">
+  <div class="drawer-header">
+    <div class="drawer-title" id="explain-drawer-title">Explainability</div>
+    <button class="btn btn-ghost btn-sm" onclick="closeExplainabilityDrawer()">✕</button>
+  </div>
+  <div class="drawer-content" id="explain-drawer-content">
+    Select an alert or timeline run to inspect evidence.
+  </div>
+</aside>
+
+<div id="command-backdrop" class="overlay-backdrop" onclick="closeCommandPalette()"></div>
+<section id="command-palette" class="command-palette" aria-hidden="true" role="dialog" aria-label="Command palette">
+  <div class="command-head">
+    <input
+      id="command-search"
+      type="text"
+      placeholder="Search commands..."
+      oninput="onCommandSearchInput(this.value)"
+      onkeydown="onCommandSearchKeydown(event)"
+      aria-label="Command search"
+    />
+    <button class="btn btn-ghost btn-sm" onclick="closeCommandPalette()" aria-label="Close command palette">✕</button>
+  </div>
+  <div id="command-list" class="command-list"></div>
+  <div class="command-foot">
+    <span>Enter: run</span>
+    <span>↑↓: navigate</span>
+    <span>Esc: close</span>
+  </div>
+</section>
+
+<script src="/static/js/app.js"></script>
+</body>
+</html>

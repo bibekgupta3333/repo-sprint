@@ -8,16 +8,23 @@ Florida Polytechnic University – Department of Computer Science
 import asyncio
 import json
 import logging
+import re
 import traceback
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
-from typing import Optional
+from pathlib import Path
+from typing import Any, Optional
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from src.agents.state import OrchestratorState, GitHubIssue
 from src.agents.orchestrator import MasterOrchestrator
+
+ROOT_DIR = Path(__file__).resolve().parent
+INFERENCE_HISTORY_DIR = ROOT_DIR / "artifacts" / "inference_history"
+MAX_ORG_RUNS = 50
 
 logging.basicConfig(
     level=logging.INFO,
@@ -27,6 +34,175 @@ logger = logging.getLogger("sprint-ui")
 
 orchestrator: Optional[MasterOrchestrator] = None
 last_result: Optional[dict] = None
+
+
+def _extract_org_from_repo(repo_ref: str) -> str:
+    value = (repo_ref or "").strip()
+    if not value:
+        return "unknown-org"
+
+    if "github.com/" in value:
+        tail = value.split("github.com/", 1)[1].strip("/")
+        if tail:
+            org = tail.split("/", 1)[0].strip()
+            if org:
+                return org
+
+    if "/" in value:
+        org = value.split("/", 1)[0].strip()
+        return org or "unknown-org"
+
+    return value
+
+
+def _org_slug(org: str) -> str:
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "_", org.strip())
+    slug = slug.strip("._-")
+    return slug or "unknown-org"
+
+
+def _org_history_path(org: str) -> Path:
+    return INFERENCE_HISTORY_DIR / f"{_org_slug(org)}.json"
+
+
+def _build_result_summary(result_json: dict[str, Any]) -> dict[str, Any]:
+    analysis = result_json.get("sprint_analysis", {})
+    if not isinstance(analysis, dict):
+        analysis = {}
+
+    risks = result_json.get("identified_risks", [])
+    recs = result_json.get("recommendations", [])
+
+    if not isinstance(risks, list):
+        risks = []
+    if not isinstance(recs, list):
+        recs = []
+
+    return {
+        "health_score": analysis.get("health_score"),
+        "completion_probability": analysis.get("completion_probability"),
+        "health_status": analysis.get("health_status"),
+        "risk_count": len(risks),
+        "recommendation_count": len(recs),
+    }
+
+
+def _run_metadata(entry: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "run_id": entry.get("run_id"),
+        "created_at": entry.get("created_at"),
+        "organization": entry.get("organization"),
+        "repositories": entry.get("repositories", []),
+        "source": entry.get("source"),
+        "eval_mode": entry.get("eval_mode"),
+        "summary": entry.get("summary", {}),
+    }
+
+
+def _load_org_history(org: str) -> dict[str, Any] | None:
+    history_path = _org_history_path(org)
+    if not history_path.exists():
+        return None
+
+    try:
+        with history_path.open("r", encoding="utf-8") as f:
+            payload = json.load(f)
+    except Exception as exc:
+        logger.warning("Failed to read org history %s: %s", history_path, exc)
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+
+    return payload
+
+
+def _persist_org_result(
+    *,
+    organization: str,
+    repositories: list[str],
+    eval_mode: str,
+    source: str,
+    result_json: dict[str, Any],
+) -> dict[str, Any]:
+    INFERENCE_HISTORY_DIR.mkdir(parents=True, exist_ok=True)
+
+    now = datetime.now().isoformat()
+    run_id = datetime.now().strftime("%Y%m%d%H%M%S%f")
+    entry = {
+        "run_id": run_id,
+        "created_at": now,
+        "organization": organization,
+        "repositories": repositories,
+        "source": source,
+        "eval_mode": eval_mode,
+        "summary": _build_result_summary(result_json),
+        "result": result_json,
+    }
+
+    history = _load_org_history(organization)
+    if history is None:
+        history = {
+            "organization": organization,
+            "slug": _org_slug(organization),
+            "updated_at": now,
+            "runs": [],
+        }
+
+    runs = history.get("runs", [])
+    if not isinstance(runs, list):
+        runs = []
+
+    runs.append(entry)
+    history["organization"] = organization
+    history["slug"] = _org_slug(organization)
+    history["updated_at"] = now
+    history["runs"] = runs[-MAX_ORG_RUNS:]
+
+    history_path = _org_history_path(organization)
+    with history_path.open("w", encoding="utf-8") as f:
+        json.dump(history, f, indent=2, ensure_ascii=True)
+
+    return entry
+
+
+def _collect_org_index() -> list[dict[str, Any]]:
+    if not INFERENCE_HISTORY_DIR.exists():
+        return []
+
+    org_index: list[dict[str, Any]] = []
+    for history_path in sorted(INFERENCE_HISTORY_DIR.glob("*.json")):
+        try:
+            with history_path.open("r", encoding="utf-8") as f:
+                history = json.load(f)
+        except Exception as exc:
+            logger.warning("Skipping unreadable org history %s: %s", history_path, exc)
+            continue
+
+        if not isinstance(history, dict):
+            continue
+
+        runs = history.get("runs", [])
+        if not isinstance(runs, list):
+            runs = []
+
+        latest = runs[-1] if runs else {}
+        if not isinstance(latest, dict):
+            latest = {}
+
+        org_index.append(
+            {
+                "organization": history.get("organization", history_path.stem),
+                "slug": history.get("slug", history_path.stem),
+                "run_count": len(runs),
+                "latest_timestamp": latest.get("created_at"),
+                "latest_run_id": latest.get("run_id"),
+                "latest_summary": latest.get("summary", {}),
+            }
+        )
+
+    org_index.sort(key=lambda item: item.get("latest_timestamp") or "", reverse=True)
+    return org_index
 
 
 @asynccontextmanager
@@ -52,6 +228,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Mount static files
+app.mount("/static", StaticFiles(directory=str(ROOT_DIR / "static")), name="static")
+
 
 # ═══════════════════════════════════════════════════════════════
 # API Endpoints
@@ -59,7 +238,7 @@ app = FastAPI(
 
 @app.get("/", response_class=HTMLResponse)
 async def index():
-    return HTMLResponse(content=HTML_PAGE, status_code=200)
+    return FileResponse(str(ROOT_DIR / "static" / "index.html"))
 
 
 @app.get("/api/health")
@@ -123,9 +302,26 @@ async def analyze(request: Request):
         result_json = json.loads(
             json.dumps(result_dict, default=_safe)
         )
+
+        organization = _extract_org_from_repo(repositories[0])
+        run_entry: dict[str, Any] | None = None
+        try:
+            run_entry = _persist_org_result(
+                organization=organization,
+                repositories=repositories,
+                eval_mode=eval_mode,
+                source="analyze",
+                result_json=result_json,
+            )
+        except Exception as persist_exc:
+            logger.warning("Could not persist org run history: %s", persist_exc)
+
         last_result = result_json
         return JSONResponse(content={
-            "status": "success", "result": result_json
+            "status": "success",
+            "organization": organization,
+            "run_id": run_entry.get("run_id") if run_entry else None,
+            "result": result_json,
         })
 
     except Exception as exc:
@@ -207,9 +403,26 @@ async def analyze_mock(request: Request):
         result_json = json.loads(
             json.dumps(result_dict, default=_safe)
         )
+
+        organization = _extract_org_from_repo("Mintplex-Labs/anything-llm")
+        run_entry: dict[str, Any] | None = None
+        try:
+            run_entry = _persist_org_result(
+                organization=organization,
+                repositories=["Mintplex-Labs/anything-llm"],
+                eval_mode=eval_mode,
+                source="analyze_mock",
+                result_json=result_json,
+            )
+        except Exception as persist_exc:
+            logger.warning("Could not persist org run history: %s", persist_exc)
+
         last_result = result_json
         return JSONResponse(content={
-            "status": "success", "result": result_json
+            "status": "success",
+            "organization": organization,
+            "run_id": run_entry.get("run_id") if run_entry else None,
+            "result": result_json,
         })
 
     except Exception as exc:
@@ -231,8 +444,361 @@ async def get_last_result():
     return JSONResponse(content=last_result)
 
 
+@app.get("/api/results/orgs")
+async def list_recorded_organizations():
+    """List organizations that have persisted inference results."""
+    return JSONResponse(content={"organizations": _collect_org_index()})
+
+
+@app.get("/api/results/org/{organization}")
+async def get_org_result(organization: str, run_id: Optional[str] = None):
+    """Get latest or specific recorded inference result for an organization."""
+    history = _load_org_history(organization)
+    if history is None:
+        return JSONResponse(
+            status_code=404,
+            content={"error": f"No recorded results for organization '{organization}'."},
+        )
+
+    runs = history.get("runs", [])
+    if not isinstance(runs, list) or not runs:
+        return JSONResponse(
+            status_code=404,
+            content={"error": f"No recorded runs for organization '{organization}'."},
+        )
+
+    selected: dict[str, Any] | None = None
+    if run_id:
+        for entry in reversed(runs):
+            if isinstance(entry, dict) and entry.get("run_id") == run_id:
+                selected = entry
+                break
+        if selected is None:
+            return JSONResponse(
+                status_code=404,
+                content={"error": f"Run '{run_id}' not found for organization '{organization}'."},
+            )
+    else:
+        latest_entry = runs[-1]
+        if isinstance(latest_entry, dict):
+            selected = latest_entry
+
+    if selected is None:
+        return JSONResponse(
+            status_code=404,
+            content={"error": f"No valid runs found for organization '{organization}'."},
+        )
+
+    return JSONResponse(
+        content={
+            "organization": history.get("organization", organization),
+            "entry": _run_metadata(selected),
+            "result": selected.get("result", {}),
+        }
+    )
+
+
+@app.get("/api/results/org/{organization}/history")
+async def get_org_result_history(organization: str, limit: int = 12):
+    """Get recent run metadata for an organization (without full result payloads)."""
+    history = _load_org_history(organization)
+    if history is None:
+        return JSONResponse(
+            status_code=404,
+            content={"error": f"No recorded results for organization '{organization}'."},
+        )
+
+    runs = history.get("runs", [])
+    if not isinstance(runs, list):
+        runs = []
+
+    bounded_limit = max(1, min(limit, 100))
+    sliced = runs[-bounded_limit:]
+    sliced.reverse()
+
+    return JSONResponse(
+        content={
+            "organization": history.get("organization", organization),
+            "run_count": len(runs),
+            "runs": [_run_metadata(entry) for entry in sliced if isinstance(entry, dict)],
+        }
+    )
+
+
 # ═══════════════════════════════════════════════════════════════
-# HTML Template
+# Sprint JSON Analysis Endpoint
+# ═══════════════════════════════════════════════════════════════
+
+@app.post("/api/analyze/sprint")
+async def analyze_sprint(request: Request):
+    """Analyze a sprint from user-provided JSON data with owner/repo."""
+    global last_result
+    if orchestrator is None:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "Orchestrator not initialised. Check Ollama connection."},
+        )
+
+    body = await request.json()
+    owner = body.get("owner", "").strip()
+    repo = body.get("repo", "").strip()
+    sprint_data = body.get("sprint_data")
+    eval_mode = body.get("eval_mode", "resilient")
+
+    if not owner or not repo:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "owner and repo fields are required"},
+        )
+
+    if not sprint_data:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "sprint_data JSON is required"},
+        )
+
+    try:
+        # Parse sprint data — accept single sprint or array
+        sprint = sprint_data if isinstance(sprint_data, dict) else (
+            sprint_data[0] if isinstance(sprint_data, list) and sprint_data else {}
+        )
+
+        now = datetime.now()
+
+        # Extract issues from sprint data
+        issues = []
+        for raw_issue in sprint.get("issues", []):
+            issues.append(GitHubIssue(
+                number=raw_issue.get("number", 0),
+                title=raw_issue.get("title", ""),
+                body=raw_issue.get("body"),
+                state=raw_issue.get("state", "open"),
+                labels=raw_issue.get("labels", []),
+                created_at=raw_issue.get("created_at"),
+                updated_at=raw_issue.get("updated_at"),
+            ))
+
+        # Extract PRs
+        prs = sprint.get("pull_requests", sprint.get("prs", []))
+
+        # Extract commits
+        commits = sprint.get("commits", [])
+
+        # Build milestone data from sprint dates
+        start_date = sprint.get("start_date", (now - timedelta(days=14)).isoformat())
+        end_date = sprint.get("end_date", now.isoformat())
+
+        repository_str = f"{owner}/{repo}"
+
+        input_state = OrchestratorState(
+            repositories=[repository_str],
+            sprint_id=sprint.get("sprint_id", "user_sprint"),
+            eval_mode=eval_mode,
+            github_issues=issues,
+            github_prs=prs,
+            commits=commits,
+            milestone_data={
+                "created_at": start_date,
+                "due_on": end_date,
+            },
+        )
+
+        loop = asyncio.get_event_loop()
+        result_state = await loop.run_in_executor(
+            None, orchestrator.invoke, input_state,
+        )
+
+        result_dict = result_state.dict()
+
+        def _safe(obj):
+            if isinstance(obj, datetime):
+                return obj.isoformat()
+            raise TypeError
+
+        result_json = json.loads(
+            json.dumps(result_dict, default=_safe)
+        )
+
+        run_entry: dict[str, Any] | None = None
+        try:
+            run_entry = _persist_org_result(
+                organization=owner,
+                repositories=[repository_str],
+                eval_mode=eval_mode,
+                source="analyze_sprint",
+                result_json=result_json,
+            )
+        except Exception as persist_exc:
+            logger.warning("Could not persist org run history: %s", persist_exc)
+
+        last_result = result_json
+        return JSONResponse(content={
+            "status": "success",
+            "organization": owner,
+            "run_id": run_entry.get("run_id") if run_entry else None,
+            "result": result_json,
+        })
+
+    except Exception as exc:
+        tb = traceback.format_exc()
+        logger.error("Sprint analysis failed: %s\n%s", exc, tb)
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(exc), "traceback": tb},
+        )
+
+
+@app.post("/api/analyze/query")
+async def analyze_query(request: Request):
+    """Analyze sprint health from freeform query text with owner/repo context."""
+    global last_result
+    if orchestrator is None:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "Orchestrator not initialised. Check Ollama connection."},
+        )
+
+    body = await request.json()
+    owner = body.get("owner", "").strip()
+    repo = body.get("repo", "").strip()
+    query_text = body.get("query_text", "").strip()
+    eval_mode = body.get("eval_mode", "resilient")
+
+    if not owner or not repo:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "owner and repo fields are required"},
+        )
+
+    if not query_text:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "query_text is required"},
+        )
+
+    try:
+        now = datetime.now()
+        repository_str = f"{owner}/{repo}"
+
+        # Seed the pipeline with user-provided context so reasoning agents can use it.
+        query_issue = GitHubIssue(
+            number=0,
+            title="User Query Context",
+            body=query_text,
+            state="open",
+            labels=["query_input"],
+            created_at=now.isoformat(),
+            updated_at=now.isoformat(),
+        )
+
+        input_state = OrchestratorState(
+            repositories=[repository_str],
+            eval_mode=eval_mode,
+            github_issues=[query_issue],
+            github_prs=[],
+            commits=[],
+            milestone_data={
+                "created_at": (now - timedelta(days=14)).isoformat(),
+                "due_on": now.isoformat(),
+                "query_context": query_text,
+            },
+        )
+
+        loop = asyncio.get_event_loop()
+        result_state = await loop.run_in_executor(
+            None, orchestrator.invoke, input_state,
+        )
+
+        result_dict = result_state.dict()
+
+        def _safe(obj):
+            if isinstance(obj, datetime):
+                return obj.isoformat()
+            raise TypeError
+
+        result_json = json.loads(
+            json.dumps(result_dict, default=_safe)
+        )
+
+        run_entry: dict[str, Any] | None = None
+        try:
+            run_entry = _persist_org_result(
+                organization=owner,
+                repositories=[repository_str],
+                eval_mode=eval_mode,
+                source="analyze_query",
+                result_json=result_json,
+            )
+        except Exception as persist_exc:
+            logger.warning("Could not persist org run history: %s", persist_exc)
+
+        last_result = result_json
+        return JSONResponse(content={
+            "status": "success",
+            "organization": owner,
+            "run_id": run_entry.get("run_id") if run_entry else None,
+            "result": result_json,
+        })
+
+    except Exception as exc:
+        tb = traceback.format_exc()
+        logger.error("Query analysis failed: %s\n%s", exc, tb)
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(exc), "traceback": tb},
+        )
+
+
+# ═══════════════════════════════════════════════════════════════
+# Data Loading Endpoints
+# ═══════════════════════════════════════════════════════════════
+
+@app.get("/api/data/sprints")
+async def list_sprint_files():
+    """List available sprint JSON files in data/ directory."""
+    data_dir = ROOT_DIR / "data"
+    files = sorted(data_dir.glob("*_sprints*.json"))
+    return JSONResponse(content={
+        "files": [f"data/{f.name}" for f in files]
+    })
+
+
+@app.get("/api/data/sprint/{filename:path}")
+async def load_sprint_file(filename: str):
+    """Load a specific sprint data file."""
+    # Sanitize: only allow files within data/ directory
+    safe_name = Path(filename).name
+    file_path = ROOT_DIR / "data" / safe_name
+
+    if not file_path.exists() or not file_path.is_file():
+        return JSONResponse(
+            status_code=404,
+            content={"error": f"File not found: {safe_name}"},
+        )
+
+    if not safe_name.endswith(".json"):
+        return JSONResponse(
+            status_code=400,
+            content={"error": "Only JSON files are supported"},
+        )
+
+    with open(file_path, "r") as f:
+        data = json.load(f)
+
+    return JSONResponse(content=data)
+
+
+# ═══════════════════════════════════════════════════════════════
+# Legacy HTML (kept for /legacy route)
+# ═══════════════════════════════════════════════════════════════
+
+@app.get("/legacy", response_class=HTMLResponse)
+async def legacy_index():
+    return HTMLResponse(content=HTML_PAGE, status_code=200)
+
+
+# ═══════════════════════════════════════════════════════════════
+# HTML Template (Legacy)
 # ═══════════════════════════════════════════════════════════════
 
 HTML_PAGE = r"""<!DOCTYPE html>

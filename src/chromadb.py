@@ -565,11 +565,24 @@ class SprintChromaDB:
         """
         query_text = self._build_query_text(owner, repo, sprint_id, features)
 
+        repo_full = f"{owner}/{repo}" if owner and repo else ""
+        where_filter: dict[str, Any]
+        if repo_full:
+            # Keep retrieval repo-scoped to prevent cross-repo citation leakage.
+            where_filter = {
+                "$and": [
+                    {"type": "sprint_summary"},
+                    {"repo_full": repo_full},
+                ]
+            }
+        else:
+            where_filter = {"type": "sprint_summary"}
+
         try:
             results = self.collection.query(
                 query_texts=[query_text],
                 n_results=min(k * 3, 30),  # over-fetch, then filter
-                where={"type": "sprint_summary"},
+                where=where_filter,
             )
         except Exception as e:
             logger.error(f"ChromaDB query failed: {e}")
@@ -611,7 +624,7 @@ class SprintChromaDB:
                 break
 
         # Gather evidence citations from the matched sprints' related artifacts
-        citations = self._gather_citations(owner, repo, [s["sprint_id"] for s in similar[:3]])
+        citations = self._gather_citations(similar[:3])
 
         context_text = self._format_rag_context(similar, citations)
 
@@ -791,28 +804,43 @@ class SprintChromaDB:
 
         return "\n".join(parts)
 
-    def _gather_citations(
-        self, owner: str, repo: str, sprint_ids: list[str]
-    ) -> list[str]:
-        """Collect GitHub URLs from related artifacts of matched sprints."""
+    def _gather_citations(self, matches: list[dict[str, Any]]) -> list[str]:
+        """Collect GitHub URLs from related artifacts of matched sprint+repo pairs."""
         citations: list[str] = []
-        if not sprint_ids:
+        if not matches:
             return citations
 
-        for sid in sprint_ids:
+        for match in matches:
+            sid = str(match.get("sprint_id", "") or "")
+            repo_full = str(
+                (match.get("metadata") or {}).get("repo_full")
+                or match.get("repo")
+                or ""
+            )
+            if not sid or not repo_full:
+                continue
+
+            owner, repo = _extract_owner_repo(repo_full)
+
             try:
                 results = self.collection.get(
                     where={
                         "$and": [
                             {"sprint_id": sid},
+                            {"repo_full": repo_full},
                             {"type": {"$ne": "sprint_summary"}},
                         ]
                     },
-                    limit=5,
+                    limit=12,
                 )
                 if results and results.get("metadatas"):
                     for meta in results["metadatas"]:
-                        url = meta.get("url", "")
+                        url = str(meta.get("url", "") or "")
+                        if not url:
+                            doc_type = str(meta.get("type", "") or "")
+                            number_or_sha = meta.get("number") or meta.get("sha") or meta.get("sha_full")
+                            if owner and repo and doc_type and number_or_sha:
+                                url = _github_url(owner, repo, doc_type, number_or_sha)
                         if url and url.startswith("https://") and url not in citations:
                             citations.append(url)
             except Exception:
