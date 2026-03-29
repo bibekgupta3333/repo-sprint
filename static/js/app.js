@@ -17,7 +17,7 @@ const DEFAULT_VIEW_FILTERS = {
   sourceMode: 'all',
 };
 
-const DASHBOARD_PAGES = ['dashboard', 'analyze', 'results', 'dependencies', 'recommendations', 'settings'];
+const DASHBOARD_PAGES = ['dashboard', 'analyze', 'results', 'dependencies', 'recommendations', 'ingestion', 'settings'];
 const DRILLDOWN_DEFAULT_SORT = { key: 'z_delta', direction: 'desc' };
 const SOURCE_RELIABILITY_SCORES = {
   llm: 1,
@@ -78,6 +78,9 @@ const AppState = {
     evalMode: 'resilient',
     showRawJson: false,
     theme: 'dark',
+  },
+  ingestion: {
+    running: false,
   },
   charts: {},
   dashboardCharts: {},
@@ -201,6 +204,7 @@ function navigateTo(page) {
     results:        ['Analysis Results', 'Detailed breakdown of sprint health assessment'],
     dependencies:   ['Dependencies',     'Cross-repository dependency intelligence'],
     recommendations:['Interventions',    'AI-generated actionable recommendations'],
+    ingestion:      ['Ingestion',        'Run organization data ingestion pipeline from dashboard'],
     settings:       ['Settings',         'System configuration and preferences'],
   };
   const [title, desc] = titles[page] || ['Sprint Intelligence', ''];
@@ -1365,7 +1369,7 @@ function handleGlobalKeyboardShortcuts(event) {
     return;
   }
 
-  if (event.altKey && ['1', '2', '3', '4', '5', '6'].includes(event.key)) {
+  if (event.altKey && ['1', '2', '3', '4', '5', '6', '7'].includes(event.key)) {
     event.preventDefault();
     const pageMap = {
       '1': 'dashboard',
@@ -1373,7 +1377,8 @@ function handleGlobalKeyboardShortcuts(event) {
       '3': 'results',
       '4': 'dependencies',
       '5': 'recommendations',
-      '6': 'settings',
+      '6': 'ingestion',
+      '7': 'settings',
     };
     const page = pageMap[event.key];
     navigateTo(page);
@@ -3589,6 +3594,180 @@ function toggleAutoRefresh(checked) {
   }
 }
 
+function onSyntheticStepChange() {
+  const step = document.getElementById('ingestion-synthetic-step');
+  const syntheticCount = document.getElementById('ingestion-synthetic-count');
+  const syntheticPersonas = document.getElementById('ingestion-synthetic-personas');
+
+  if (!step || !syntheticCount || !syntheticPersonas) return;
+
+  const isGenerate = step.value === 'generate';
+  syntheticCount.disabled = !isGenerate;
+  syntheticPersonas.disabled = !isGenerate;
+}
+
+function setIngestionStatus(message, tone = 'info') {
+  const statusEl = document.getElementById('ingestion-status');
+  if (!statusEl) return;
+
+  statusEl.textContent = message;
+  statusEl.classList.remove('success', 'error');
+  if (tone === 'success' || tone === 'error') {
+    statusEl.classList.add(tone);
+  }
+}
+
+function setIngestionOutput(text) {
+  const outputEl = document.getElementById('ingestion-output');
+  if (!outputEl) return;
+  outputEl.textContent = text;
+  outputEl.scrollTop = 0;
+}
+
+function clearIngestionOutput() {
+  setIngestionStatus('Ready. Configure organization and repos, then run.', 'info');
+  setIngestionOutput('No ingestion run yet.');
+}
+
+function parseIngestionRepos(rawRepos) {
+  const values = String(rawRepos || '')
+    .split(/[\n,]/)
+    .map(value => value.trim())
+    .filter(Boolean);
+
+  const deduped = [];
+  const seen = new Set();
+
+  values.forEach(repo => {
+    const key = repo.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    deduped.push(repo);
+  });
+
+  return deduped;
+}
+
+async function runOrgPipelineIngestion() {
+  if (AppState.ingestion.running) return;
+
+  const orgLinkInput = document.getElementById('ingestion-org-link');
+  const reposInput = document.getElementById('ingestion-repos');
+  const repoCountInput = document.getElementById('ingestion-repo-count');
+  const syntheticStepInput = document.getElementById('ingestion-synthetic-step');
+  const syntheticCountInput = document.getElementById('ingestion-synthetic-count');
+  const syntheticPersonasInput = document.getElementById('ingestion-synthetic-personas');
+  const includeForksInput = document.getElementById('ingestion-include-forks');
+  const queryTestInput = document.getElementById('ingestion-enable-query-test');
+  const dryRunInput = document.getElementById('ingestion-dry-run');
+  const runBtn = document.getElementById('ingestion-run-btn');
+
+  if (!orgLinkInput || !reposInput || !repoCountInput || !syntheticStepInput || !syntheticCountInput ||
+      !syntheticPersonasInput || !includeForksInput || !queryTestInput || !dryRunInput || !runBtn) {
+    showToast('Ingestion controls are not available on this page.', 'error');
+    return;
+  }
+
+  const orgLink = orgLinkInput.value.trim();
+  if (!orgLink) {
+    setIngestionStatus('Organization URL or name is required.', 'error');
+    showToast('Provide organization URL or name first.', 'error');
+    return;
+  }
+
+  const repos = parseIngestionRepos(reposInput.value);
+  let repoCount = Number.parseInt(repoCountInput.value || '1', 10);
+  if (!Number.isFinite(repoCount) || repoCount < 1) {
+    repoCount = 1;
+  }
+  if (repos.length > repoCount) {
+    repoCount = repos.length;
+    repoCountInput.value = String(repoCount);
+  }
+
+  const syntheticStep = syntheticStepInput.value;
+  let syntheticCount = Number.parseInt(syntheticCountInput.value || '100', 10);
+  if (!Number.isFinite(syntheticCount) || syntheticCount < 1) {
+    syntheticCount = 100;
+  }
+
+  const payload = {
+    org_link: orgLink,
+    repos,
+    repo_count: repoCount,
+    include_forks: includeForksInput.checked,
+    synthetic_step: syntheticStep,
+    synthetic_count: syntheticCount,
+    synthetic_personas: syntheticPersonasInput.value,
+    no_query_test: !queryTestInput.checked,
+    dry_run: dryRunInput.checked,
+  };
+
+  AppState.ingestion.running = true;
+  const originalLabel = runBtn.textContent;
+  runBtn.disabled = true;
+  runBtn.textContent = 'Running...';
+
+  setIngestionStatus('Running org pipeline. This can take a few minutes...', 'info');
+  setIngestionOutput('Submitting request...');
+
+  try {
+    const response = await fetch('/api/ingestion/org-pipeline', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      const message = data.error || 'Org pipeline request failed.';
+      setIngestionStatus(message, 'error');
+      setIngestionOutput(message);
+      showToast(message, 'error');
+      return;
+    }
+
+    const lines = [];
+    lines.push(`$ ${data.command || 'npm run org:pipeline -- ...'}`);
+    lines.push('');
+    lines.push(`Status: ${data.status || 'unknown'}`);
+    lines.push(`Return Code: ${data.returncode}`);
+    lines.push(`Duration: ${(data.duration_seconds ?? 0).toFixed(3)}s`);
+    if (data.stdout_truncated) {
+      lines.push('Note: stdout truncated to latest logs.');
+    }
+    if (data.stderr_truncated) {
+      lines.push('Note: stderr truncated to latest logs.');
+    }
+    lines.push('');
+    lines.push('[STDOUT]');
+    lines.push(data.stdout || '(no stdout)');
+    lines.push('');
+    lines.push('[STDERR]');
+    lines.push(data.stderr || '(no stderr)');
+    setIngestionOutput(lines.join('\n'));
+
+    if (data.status === 'success') {
+      setIngestionStatus('Org pipeline completed successfully.', 'success');
+      showToast('Org pipeline completed successfully.', 'success');
+      await loadSprintFiles();
+    } else {
+      setIngestionStatus('Org pipeline finished with errors. Review logs below.', 'error');
+      showToast('Org pipeline finished with errors.', 'error');
+    }
+  } catch (error) {
+    const message = `Org pipeline request failed: ${error.message}`;
+    setIngestionStatus(message, 'error');
+    setIngestionOutput(message);
+    showToast(message, 'error');
+  } finally {
+    AppState.ingestion.running = false;
+    runBtn.disabled = false;
+    runBtn.textContent = originalLabel;
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════
 // Init
 // ═══════════════════════════════════════════════════════════════
@@ -3615,6 +3794,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   syncDeepLinkState();
 
   checkHealth();
+  onSyntheticStepChange();
   bindSidebarKeyboardNavigation();
   document.addEventListener('keydown', handleGlobalKeyboardShortcuts);
   setInterval(checkHealth, 30000);
