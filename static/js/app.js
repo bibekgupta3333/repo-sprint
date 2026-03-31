@@ -177,6 +177,133 @@ const STAGES = [
   { name: 'Explainer',        icon: '📝', desc: 'Writing evidence-backed narrative report…' },
 ];
 
+const EXAMPLE_SPRINT_INPUT = {
+  sprint_id: 'example_sprint_001',
+  repo: 'Mintplex-Labs/anything-llm',
+  start_date: '2026-03-01T00:00:00Z',
+  end_date: '2026-03-14T23:59:59Z',
+  issues: [
+    {
+      number: 101,
+      title: 'Stabilize authentication refresh flow',
+      body: 'Intermittent session drops under concurrent API calls. Must complete before release candidate.',
+      state: 'closed',
+      labels: ['backend', 'auth', 'priority-high'],
+      created_at: '2026-03-01T09:12:00Z',
+      updated_at: '2026-03-03T11:45:00Z',
+      closed_at: '2026-03-03T11:45:00Z',
+      author: 'alice',
+      url: 'https://github.com/Mintplex-Labs/anything-llm/issues/101',
+      related_prs: [201],
+    },
+    {
+      number: 102,
+      title: 'Improve vector search latency for dashboard query mode',
+      body: 'Search endpoint exceeds P95 target in peak ingestion windows.',
+      state: 'open',
+      labels: ['performance', 'rag', 'priority-medium'],
+      created_at: '2026-03-02T10:05:00Z',
+      updated_at: '2026-03-10T14:20:00Z',
+      author: 'bob',
+      url: 'https://github.com/Mintplex-Labs/anything-llm/issues/102',
+      related_prs: [202],
+    },
+    {
+      number: 103,
+      title: 'Add explainability panel evidence grouping',
+      body: 'Group citations by issue/PR/commit so non-technical stakeholders can review faster.',
+      state: 'open',
+      labels: ['frontend', 'ux', 'explainability'],
+      created_at: '2026-03-04T13:30:00Z',
+      updated_at: '2026-03-11T08:55:00Z',
+      author: 'carol',
+      url: 'https://github.com/Mintplex-Labs/anything-llm/issues/103',
+      related_prs: [203],
+    },
+  ],
+  pull_requests: [
+    {
+      number: 201,
+      title: 'Fix token refresh race condition',
+      body: 'Adds lock-based refresh guard and retries for transient auth provider errors.',
+      state: 'closed',
+      labels: ['auth', 'bugfix'],
+      author: 'alice',
+      additions: 128,
+      deletions: 36,
+      commits: 4,
+      created_at: '2026-03-02T07:40:00Z',
+      updated_at: '2026-03-03T11:40:00Z',
+      closed_at: '2026-03-03T11:40:00Z',
+      merged_at: '2026-03-03T11:40:00Z',
+      url: 'https://github.com/Mintplex-Labs/anything-llm/pull/201',
+      file_diffs: [
+        { filename: 'src/auth/session.ts', status: 'modified', additions: 74, deletions: 19 },
+        { filename: 'src/auth/token.ts', status: 'modified', additions: 54, deletions: 17 },
+      ],
+    },
+    {
+      number: 202,
+      title: 'Optimize retrieval query batching',
+      body: 'Introduces request coalescing and adaptive chunk sizes for lower latency.',
+      state: 'open',
+      labels: ['performance', 'rag'],
+      author: 'david',
+      additions: 212,
+      deletions: 61,
+      commits: 6,
+      created_at: '2026-03-05T08:25:00Z',
+      updated_at: '2026-03-12T16:50:00Z',
+      url: 'https://github.com/Mintplex-Labs/anything-llm/pull/202',
+      file_diffs: [
+        { filename: 'src/retrieval/query_runner.py', status: 'modified', additions: 147, deletions: 44 },
+        { filename: 'src/retrieval/cache.py', status: 'modified', additions: 65, deletions: 17 },
+      ],
+    },
+  ],
+  commits: [
+    {
+      sha: 'a1b2c3d',
+      sha_full: 'a1b2c3d4e5f67890aabbccddeeff001122334455',
+      message: 'fix(auth): guard refresh flow under concurrent load',
+      body: 'Prevents duplicate refresh calls and session invalidation race.',
+      author: 'alice',
+      created_at: '2026-03-03T11:10:00Z',
+      url: 'https://github.com/Mintplex-Labs/anything-llm/commit/a1b2c3d4e5f67890aabbccddeeff001122334455',
+      diff: {
+        total_additions: 45,
+        total_deletions: 12,
+        files_changed: 3,
+        file_diffs: [
+          { filename: 'src/auth/session.ts', status: 'modified', additions: 22, deletions: 5 },
+          { filename: 'src/auth/token.ts', status: 'modified', additions: 17, deletions: 4 },
+          { filename: 'tests/auth/session.test.ts', status: 'modified', additions: 6, deletions: 3 },
+        ],
+      },
+    },
+    {
+      sha: 'd4e5f6a',
+      sha_full: 'd4e5f6a7b8c90123ddeeffaabb11223344556677',
+      message: 'perf(rag): coalesce vector queries for dashboard latency',
+      body: 'Bundles near-simultaneous requests and improves chunk planning.',
+      author: 'david',
+      created_at: '2026-03-10T15:42:00Z',
+      url: 'https://github.com/Mintplex-Labs/anything-llm/commit/d4e5f6a7b8c90123ddeeffaabb11223344556677',
+      diff: {
+        total_additions: 62,
+        total_deletions: 18,
+        files_changed: 4,
+        file_diffs: [
+          { filename: 'src/retrieval/query_runner.py', status: 'modified', additions: 35, deletions: 10 },
+          { filename: 'src/retrieval/batching.py', status: 'modified', additions: 18, deletions: 5 },
+          { filename: 'src/retrieval/cache.py', status: 'modified', additions: 7, deletions: 2 },
+          { filename: 'tests/retrieval/query_runner.test.py', status: 'modified', additions: 2, deletions: 1 },
+        ],
+      },
+    },
+  ],
+};
+
 let animTimer = null;
 let stageIdx = 0;
 
@@ -741,7 +868,8 @@ async function loadSampleShortcut() {
   }
 
   if (!AppState.sprintFiles.length) {
-    showToast('No sample sprint files available', 'error');
+    loadExampleSprintInput();
+    showToast('Dataset sample unavailable — loaded built-in example sprint', 'info');
     return;
   }
 
@@ -1694,6 +1822,28 @@ function clearJson() {
   document.querySelectorAll('.file-chip').forEach(el => el.classList.remove('active'));
 }
 
+function loadExampleSprintInput() {
+  setInputMode('json');
+
+  const sprintInput = document.getElementById('sprint-json');
+  const ownerInput = document.getElementById('owner-input');
+  const repoInput = document.getElementById('repo-input');
+
+  if (sprintInput) {
+    sprintInput.value = JSON.stringify(EXAMPLE_SPRINT_INPUT, null, 2);
+    sprintInput.focus();
+  }
+
+  if (ownerInput && repoInput) {
+    const [owner, repo] = EXAMPLE_SPRINT_INPUT.repo.split('/');
+    ownerInput.value = owner || '';
+    repoInput.value = repo || '';
+  }
+
+  document.querySelectorAll('.file-chip').forEach(el => el.classList.remove('active'));
+  showToast('Loaded built-in example sprint input', 'success');
+}
+
 // ═══════════════════════════════════════════════════════════════
 // Pipeline visualization
 // ═══════════════════════════════════════════════════════════════
@@ -2120,6 +2270,18 @@ function renderCharts(r) {
 // Results page rendering
 // ═══════════════════════════════════════════════════════════════
 
+function renderNarrativeMarkdown(rawText) {
+  const safe = escapeHtml(rawText || '');
+  return safe
+    .replace(/^###\s+(.+)$/gm, '<div style="color:var(--indigo);font-weight:700;font-size:.92rem;margin:.55rem 0 .2rem">$1</div>')
+    .replace(/^##\s+(.+)$/gm, '<div style="color:var(--indigo);font-weight:800;font-size:1rem;margin:.7rem 0 .25rem">$1</div>')
+    .replace(/^#\s+(.+)$/gm, '<div style="color:var(--text);font-weight:800;font-size:1.08rem;margin:.2rem 0 .35rem">$1</div>')
+    .replace(/^\d+\.\s+(.+)$/gm, '<div style="margin-left:.2rem;margin-top:.22rem">$&</div>')
+    .replace(/^-\s+(.+)$/gm, '<div style="margin-left:.2rem;margin-top:.18rem">• $1</div>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\n/g, '<br>');
+}
+
 function renderResultsPage(r) {
   const a = r.sprint_analysis || {};
   const rm = r.run_metrics || {};
@@ -2141,11 +2303,7 @@ function renderResultsPage(r) {
 
   // Narrative
   const nar = r.narrative_explanation || 'No narrative generated.';
-  document.getElementById('results-narrative').innerHTML = nar
-    .replace(/^## (.+)$/gm, '<strong style="color:#818cf8;font-size:.88rem">$1</strong>')
-    .replace(/^# (.+)$/gm, '<strong style="color:var(--text);font-size:.95rem">$1</strong>')
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/^- /gm, '• ');
+  document.getElementById('results-narrative').innerHTML = renderNarrativeMarkdown(nar);
 
   // RAG panel
   const sims = r.similar_sprint_ids || [];
@@ -2157,7 +2315,10 @@ function renderResultsPage(r) {
   if (Object.keys(synthVal).length) {
     ragHTML += `<div style="font-size:.72rem;margin-bottom:.4rem"><strong style="color:var(--cyan)">Synthetic Validation:</strong> Realism score: ${(synthVal.realism_score ?? 0).toFixed(3)}</div>`;
   }
-  ragHTML += `<div style="font-size:.72rem"><strong style="color:var(--cyan)">Evidence Citations:</strong> ${cites.length ? cites.join(', ') : 'No citations'}</div>`;
+  const citationHtml = cites.length
+    ? `<div style="margin-top:.2rem">${cites.slice(0, 20).map(url => `<div style="margin:.12rem 0;word-break:break-all">• ${escapeHtml(url)}</div>`).join('')}</div>`
+    : '<span style="color:var(--text-muted)">No citations</span>';
+  ragHTML += `<div style="font-size:.72rem"><strong style="color:var(--cyan)">Evidence Citations:</strong>${citationHtml}</div>`;
   document.getElementById('results-rag').innerHTML = ragHTML;
 
   // Execution logs

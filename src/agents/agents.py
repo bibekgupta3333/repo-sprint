@@ -167,12 +167,16 @@ class EmbeddingAgent:
                 repo=repo,
                 sprint_id=state.sprint_id,
                 features=state.features if isinstance(state.features, dict) else None,
-                k=5,
+                k=8,
             )
 
             # Populate state with RAG context
             similar = rag_result.get("similar_sprints", [])
-            state.similar_sprint_ids = [s["sprint_id"] for s in similar]
+            state.similar_sprint_ids = [
+                s.get("sprint_id", "")
+                for s in similar
+                if s.get("sprint_id")
+            ]
             state.evidence_citations = rag_result.get("evidence_citations", [])
 
             state.rag_context = RAGContext(
@@ -185,8 +189,7 @@ class EmbeddingAgent:
                 float(len(rag_result.get("context_text", "")))
             ]
             # attach the full text as a state field agents can read
-            if not hasattr(state, "_rag_context_text"):
-                object.__setattr__(state, "_rag_context_text", rag_result.get("context_text", ""))
+            object.__setattr__(state, "_rag_context_text", rag_result.get("context_text", ""))
 
             self.logger.info(
                 f"  ✓ Retrieved {len(similar)} similar sprints, "
@@ -262,6 +265,7 @@ class LLMReasonerAgent:
                 else:
                     state.sprint_analysis = analysis
                     state.analysis_source = "fallback" if parse_fallback else "llm"
+                    state.llm_reasoning_explanation = str(analysis.get("reasoning", "") or "")
                     self.logger.info(
                         f"  ✓ Predicted: {analysis.get('completion_probability', 0):.0f}% "
                         f"({analysis.get('health_status', 'unknown')})"
@@ -297,16 +301,20 @@ class LLMReasonerAgent:
         # Inject full historical sprint context if available from EmbeddingAgent
         if rag:
             context["similar_sprint_details"] = []
-            for s in (rag.similar_sprints or [])[:5]:
+            for s in (rag.similar_sprints or [])[:8]:
                 context["similar_sprint_details"].append({
                     "sprint_id": s.get("sprint_id", ""),
                     "repo": s.get("repo", ""),
                     "similarity": s.get("similarity", 0),
                     "risk_score": s.get("risk_score", 0),
                     "is_at_risk": s.get("is_at_risk", False),
-                    "content": (s.get("content") or "")[:600],
+                    "content": (s.get("content") or "")[:1200],
                 })
             context["evidence_citations"] = rag.evidence_citations or []
+
+        context_text = str(getattr(state, "_rag_context_text", "") or "").strip()
+        if context_text:
+            context["context_text"] = context_text[:4000]
 
         return context
 
@@ -446,16 +454,26 @@ class RecommenderAgent:
 
             # Generate recommendations with evidence citations
             rag_ctx: dict[str, Any] = {"similar_sprints": state.similar_sprint_ids}
+            evidence_pool: list[str] = []
             if state.rag_context:
                 if state.rag_context.evidence_citations:
                     rag_ctx["evidence_citations"] = state.rag_context.evidence_citations
+                    evidence_pool = list(state.rag_context.evidence_citations)
                 # Include similar sprint detail summaries for precedent matching
                 if state.rag_context.similar_sprints:
                     rag_ctx["similar_sprint_details"] = [
-                        {"sprint_id": s.get("sprint_id"), "risk_score": s.get("risk_score", 0),
-                         "is_at_risk": s.get("is_at_risk", False)}
-                        for s in state.rag_context.similar_sprints[:3]
+                        {
+                            "sprint_id": s.get("sprint_id"),
+                            "repo": s.get("repo", ""),
+                            "similarity": s.get("similarity", 0),
+                            "risk_score": s.get("risk_score", 0),
+                            "is_at_risk": s.get("is_at_risk", False),
+                            "content": (s.get("content") or "")[:320],
+                        }
+                        for s in state.rag_context.similar_sprints[:8]
                     ]
+            rag_ctx["current_analysis"] = state.sprint_analysis or {}
+
             recommendation_result = self.llm_tool.generate_recommendations(
                 risks=risk_dicts,
                 rag_context=rag_ctx,
@@ -464,31 +482,53 @@ class RecommenderAgent:
             if recommendation_result.get("error"):
                 state.errors.append(f"Recommendation model error: {recommendation_result['error']}")
 
-            if recommendations:
+            normalized_recommendations: list[dict[str, str]] = []
+            for rec_data in recommendations:
+                if isinstance(rec_data, dict):
+                    normalized = self._normalize_recommendation(rec_data, evidence_pool)
+                    if normalized:
+                        normalized_recommendations.append(normalized)
+
+            if normalized_recommendations:
                 state.recommendation_source = "llm"
             elif risk_dicts and not strict_mode:
                 # Fallback to deterministic recommendations when LLM output is empty/unparseable.
-                recommendations = self._build_fallback_recommendations(risk_dicts)
+                normalized_recommendations = self._build_fallback_recommendations(
+                    risk_dicts,
+                    evidence_pool=evidence_pool,
+                    limit=6,
+                )
                 state.recommendation_source = "fallback"
             else:
                 state.recommendation_source = "none"
                 if strict_mode:
                     state.errors.append("Strict mode: no valid LLM recommendations produced")
 
+            # Top up with deterministic recommendations when LLM returns too few.
+            if not strict_mode and risk_dicts and len(normalized_recommendations) < 3:
+                needed = 5 - len(normalized_recommendations)
+                normalized_recommendations.extend(
+                    self._build_fallback_recommendations(
+                        risk_dicts,
+                        evidence_pool=evidence_pool,
+                        limit=max(needed, 0),
+                    )
+                )
+
+            # Deduplicate recommendations by normalized title.
+            deduped: list[dict[str, str]] = []
+            seen_titles: set[str] = set()
+            for rec in normalized_recommendations:
+                key = str(rec.get("title", "")).strip().lower()
+                if not key or key in seen_titles:
+                    continue
+                seen_titles.add(key)
+                deduped.append(rec)
+
             # Convert to Recommendation objects
-            for rec_data in recommendations:
+            for rec_data in deduped[:7]:
                 if isinstance(rec_data, dict):
                     try:
-                        # Fill in missing required fields with defaults
-                        if "description" not in rec_data:
-                            rec_data["description"] = rec_data.get(
-                                "expected_impact",
-                                rec_data.get("title", "No description")
-                            )
-                        if "action" not in rec_data:
-                            rec_data["action"] = rec_data.get(
-                                "title", "Take action"
-                            )
                         rec = Recommendation(**rec_data)
                         state.recommendations.append(rec)
                     except Exception as e:
@@ -513,22 +553,133 @@ class RecommenderAgent:
 
         return state
 
-    def _build_fallback_recommendations(self, risks: list[dict]) -> list[dict[str, str]]:
-        """Build simple deterministic recommendations from risks."""
+    def _normalize_recommendation(
+        self,
+        rec_data: dict[str, Any],
+        evidence_pool: list[str],
+    ) -> dict[str, str]:
+        """Normalize recommendation shape and enforce detailed output fields."""
+        title = str(rec_data.get("title") or "Mitigate sprint delivery risk").strip()
+        priority = str(rec_data.get("priority") or "medium").strip().lower()
+        if priority not in {"high", "medium", "low"}:
+            priority = "medium"
+
+        description = str(
+            rec_data.get("description")
+            or rec_data.get("expected_impact")
+            or title
+        ).strip()
+        action = str(
+            rec_data.get("action")
+            or "Assign an owner, split tasks, and review progress daily."
+        ).strip()
+        expected_impact = str(
+            rec_data.get("expected_impact")
+            or "Higher sprint predictability and reduced blocker escalation"
+        ).strip()
+        evidence_source = str(rec_data.get("evidence_source") or "").strip()
+
+        if len(description) < 90:
+            description = (
+                f"{description} This recommendation addresses execution risk by reducing delay drivers "
+                f"and creating an explicit mitigation loop with measurable checkpoints."
+            )
+
+        if not evidence_source:
+            evidence_source = evidence_pool[0] if evidence_pool else "historical_precedent"
+
+        return {
+            "title": title,
+            "description": description,
+            "priority": priority,
+            "expected_impact": expected_impact,
+            "action": action,
+            "evidence_source": evidence_source,
+        }
+
+    def _build_fallback_recommendations(
+        self,
+        risks: list[dict],
+        evidence_pool: Optional[list[str]] = None,
+        limit: int = 5,
+    ) -> list[dict[str, str]]:
+        """Build deterministic, detailed recommendations from risk patterns."""
+        evidence_pool = evidence_pool or []
         output: list[dict[str, str]] = []
-        for risk in risks[:5]:
+        for idx, risk in enumerate(risks[: max(1, limit)]):
             risk_type = str(risk.get("risk_type", "delivery_risk"))
             severity = float(risk.get("severity", 0.5))
-            priority = "high" if severity >= 0.7 else "medium"
+            if severity >= 0.75:
+                priority = "high"
+            elif severity >= 0.45:
+                priority = "medium"
+            else:
+                priority = "low"
+
+            evidence_source = str(risk.get("evidence", "") or "").strip()
+            if not evidence_source:
+                evidence_source = (
+                    evidence_pool[idx % len(evidence_pool)]
+                    if evidence_pool
+                    else f"risk_signal:{risk_type}"
+                )
+
+            if risk_type in {"review_bottleneck", "unreviewed_prs", "abandoned_prs"}:
+                title = "Unblock review pipeline with SLA and reviewer rotation"
+                description = (
+                    "Review throughput is constraining completion. Create a rotating reviewer schedule, "
+                    "set a 24-hour first-response SLA for PRs, and prioritize stale review queues."
+                )
+                action = (
+                    "Assign one triage owner, tag stale PRs older than 48h, and run a daily merge window "
+                    "until merge-rate stabilizes above target."
+                )
+                impact = "Faster PR cycle time and lower spillover risk into next sprint"
+            elif risk_type in {"velocity_gap", "completion_risk"}:
+                title = "Re-baseline scope and protect critical path"
+                description = (
+                    "Current delivery pace is below required velocity. Prioritize must-ship items, defer low-impact scope, "
+                    "and isolate critical blockers to recover execution momentum."
+                )
+                action = (
+                    "Run a same-day re-planning session, mark critical-path issues, and enforce daily progress checks "
+                    "on top-risk work items."
+                )
+                impact = "Higher on-time completion probability and clearer sprint commitments"
+            elif risk_type in {"stalled_blockers", "dependency_risk", "execution_uncertainty"}:
+                title = "Escalate blockers and dependency owners"
+                description = (
+                    "Blocking dependencies are likely to amplify downstream delays. Create explicit dependency ownership "
+                    "and escalation deadlines for unresolved blockers."
+                )
+                action = (
+                    "Open blocker tickets with named owners, define fallback paths, and schedule a dependency stand-up "
+                    "for rapid unblocking."
+                )
+                impact = "Reduced propagation risk and fewer schedule shocks"
+            else:
+                title = f"Mitigate {risk_type.replace('_', ' ')} with targeted intervention"
+                description = (
+                    f"Detected {risk_type.replace('_', ' ')} requires targeted mitigation. "
+                    "Apply owner-based follow-through and measurable checkpoints to prevent escalation."
+                )
+                action = (
+                    "Assign a mitigation owner, define 2-3 concrete actions, and review impact against sprint KPIs daily."
+                )
+                impact = "Improved sprint predictability and reduced risk concentration"
 
             output.append({
-                "title": f"Mitigate {risk_type.replace('_', ' ')}",
-                "description": f"Address {risk_type.replace('_', ' ')} based on current sprint signals.",
+                "title": title,
+                "description": description,
                 "priority": priority,
-                "expected_impact": "Improved sprint predictability and reduced blocker risk",
-                "action": "Assign owner, define mitigation tasks, and review progress daily",
-                "evidence_source": "fallback_policy",
+                "expected_impact": impact,
+                "action": action,
+                "evidence_source": evidence_source,
             })
+
+            if len(output) >= limit:
+                break
+
         return output
 
 
@@ -589,83 +740,163 @@ class ExplainerAgent:
 
             # Collect citation URLs from evidence
             citations: list[str] = list(state.evidence_citations or [])
-            for issue in evidence.get("issues", [])[:5]:
-                url = issue.get("url", "")
-                if url and url not in citations:
-                    citations.append(url)
-            for pr in evidence.get("prs", [])[:5]:
-                url = pr.get("url", "")
-                if url and url not in citations:
-                    citations.append(url)
-            for commit in evidence.get("commits", [])[:3]:
-                url = commit.get("url", "")
-                if url and url not in citations:
-                    citations.append(url)
 
-            state.evidence_citations = citations
+            def add_citation(url: str) -> None:
+                clean_url = str(url or "").strip()
+                if clean_url.startswith("https://") and clean_url not in citations:
+                    citations.append(clean_url)
+
+            for issue in evidence.get("issues", [])[:10]:
+                url = issue.get("url", "")
+                add_citation(url)
+            for pr in evidence.get("prs", [])[:10]:
+                url = pr.get("url", "")
+                add_citation(url)
+            for commit in evidence.get("commits", [])[:8]:
+                url = commit.get("url", "")
+                add_citation(url)
+
+            # Expand evidence using similar historical sprints (RAG context).
+            rag = state.rag_context
+            for similar in (rag.similar_sprints if rag else [])[:5]:
+                similar_sid = str(similar.get("sprint_id", "") or "").strip()
+                repo_full = str(
+                    similar.get("repo", "")
+                    or (similar.get("metadata") or {}).get("repo_full", "")
+                ).strip()
+                if not similar_sid or not repo_full or "/" not in repo_full:
+                    continue
+
+                sim_owner, sim_repo = repo_full.split("/", 1)
+                sim_evidence = chroma.get_sprint_evidence(
+                    owner=sim_owner,
+                    repo=sim_repo,
+                    sprint_id=similar_sid,
+                )
+
+                for issue in sim_evidence.get("issues", [])[:2]:
+                    add_citation(issue.get("url", ""))
+                for pr in sim_evidence.get("prs", [])[:2]:
+                    add_citation(pr.get("url", ""))
+                for commit in sim_evidence.get("commits", [])[:1]:
+                    add_citation(commit.get("url", ""))
+
+            state.evidence_citations = citations[:30]
 
         except Exception as e:
             self.logger.warning(f"Evidence enrichment skipped: {e}")
 
     def _build_narrative(self, state: OrchestratorState) -> str:
-        """Build natural language narrative."""
-        lines = ["# Sprint Intelligence Report\n"]
+        """Build a detailed natural language narrative grounded in retrieved evidence."""
+        lines = ["# Sprint Intelligence Report", ""]
 
         # Overview
         analysis = state.sprint_analysis or {}
         if analysis:
             lines.append("## Executive Summary")
-            completion = analysis.get("completion_probability", 0)
-            health = analysis.get("health_status", "Unknown")
+            completion = float(analysis.get("completion_probability", 0) or 0)
+            health = str(analysis.get("health_status", "Unknown"))
+            confidence = float(analysis.get("confidence_score", 0) or 0)
             lines.append(f"- **Completion Probability**: {completion:.0f}%")
             lines.append(f"- **Sprint Health**: {health.title()}")
+            lines.append(f"- **Model Confidence**: {confidence:.2f}")
             if "health_score" in analysis:
                 lines.append(f"- **Composite Health Score**: {analysis.get('health_score', 0):.1f}/100")
             if "dependency_risk_score" in analysis:
                 lines.append(f"- **Cross-Repo Dependency Risk**: {analysis.get('dependency_risk_score', 0):.1f}/100")
             if analysis.get("key_signals"):
                 lines.append("- **Key Signals**:")
-                for signal in list(analysis.get("key_signals", []))[:4]:
+                for signal in list(analysis.get("key_signals", []))[:6]:
                     lines.append(f"  - {signal}")
+            lines.append("")
+
+            reasoning = str(
+                analysis.get("reasoning")
+                or state.llm_reasoning_explanation
+                or ""
+            ).strip()
+            if reasoning:
+                lines.append("## Why The Model Reached This Forecast")
+                lines.append(reasoning)
+                lines.append("")
+
+        # Historical RAG evidence context
+        rag = state.rag_context
+        if rag and rag.similar_sprints:
+            lines.append("## Historical Pattern Match (RAG)")
+            lines.append(
+                f"Forecast grounded in **{len(rag.similar_sprints)}** similar historical sprint cases. "
+                "Top matches and risk posture:"
+            )
+            lines.append("")
+            for s in rag.similar_sprints[:8]:
+                sid = s.get("sprint_id", "unknown")
+                repo = s.get("repo", "")
+                sim_score = float(s.get("similarity", 0) or 0)
+                risk = float(s.get("risk_score", 0) or 0)
+                at_risk = bool(s.get("is_at_risk", False))
+                lines.append(
+                    f"- **{sid}** ({repo}) — similarity: {sim_score:.2f}, "
+                    f"risk score: {risk:.2f}, at-risk: {at_risk}"
+                )
             lines.append("")
 
         # Risks
         if state.identified_risks:
-            lines.append("## Key Risks")
+            lines.append("## Detailed Risk Breakdown")
             for risk in state.identified_risks[:5]:
                 risk_dict = risk.dict() if hasattr(risk, "dict") else risk
-                severity = risk_dict.get("severity", 0)
+                severity = float(risk_dict.get("severity", 0) or 0)
                 risk_type = risk_dict.get("risk_type", "Unknown")
                 lines.append(f"- **{risk_type.title()}** (severity: {severity:.1f}/1.0)")
                 if desc := risk_dict.get("description"):
                     lines.append(f"  {desc}")
+                affected = risk_dict.get("affected_issues", [])
+                if affected:
+                    lines.append(f"  Affected issues: {', '.join(str(i) for i in affected)}")
+                if risk_dict.get("evidence"):
+                    lines.append(f"  Evidence: {risk_dict.get('evidence')}")
             lines.append("")
 
         # Recommendations
         if state.recommendations:
-            lines.append("## Recommended Actions")
-            for rec in state.recommendations[:5]:
+            lines.append("## Detailed Recommendations")
+            for rec in state.recommendations[:7]:
                 rec_dict = rec.dict() if hasattr(rec, "dict") else rec
                 title = rec_dict.get("title", "Action")
                 priority = rec_dict.get("priority", "medium")
                 lines.append(f"- **{title}** [{priority.upper()}]")
                 if desc := rec_dict.get("description"):
-                    lines.append(f"  {desc}")
+                    lines.append(f"  Why: {desc}")
+                if action := rec_dict.get("action"):
+                    lines.append(f"  Action: {action}")
+                if impact := rec_dict.get("expected_impact"):
+                    lines.append(f"  Expected impact: {impact}")
+                if evidence_source := rec_dict.get("evidence_source"):
+                    lines.append(f"  Evidence source: {evidence_source}")
             lines.append("")
 
-        # Evidence — cite similar sprints and GitHub URLs
-        rag = state.rag_context
-        if rag and rag.similar_sprints:
-            lines.append("## Evidence Base")
-            lines.append(f"Analysis grounded in {len(rag.similar_sprints)} similar historical sprints:\n")
-            for s in rag.similar_sprints[:5]:
-                sid = s.get("sprint_id", "unknown")
-                repo = s.get("repo", "")
-                sim_score = s.get("similarity", 0)
-                risk = s.get("risk_score", 0)
-                lines.append(f"- **{sid}** ({repo}) — similarity: {sim_score:.2f}, risk: {risk:.2f}")
+            lines.append("## Immediate 48-Hour Execution Plan")
+            prioritized = [
+                r.dict() if hasattr(r, "dict") else r
+                for r in state.recommendations
+            ]
+            high_then_medium = sorted(
+                prioritized,
+                key=lambda item: {
+                    "high": 0,
+                    "medium": 1,
+                    "low": 2,
+                }.get(str(item.get("priority", "medium")).lower(), 1),
+            )
+            for idx, rec in enumerate(high_then_medium[:3], 1):
+                title = rec.get("title", "Action")
+                action = rec.get("action", "Define action owner and timeline")
+                lines.append(f"{idx}. **{title}** — {action}")
             lines.append("")
-        elif state.similar_sprint_ids:
+
+        # Evidence summary fallback
+        if not (rag and rag.similar_sprints) and state.similar_sprint_ids:
             lines.append("## Evidence Base")
             lines.append(f"Analysis based on {len(state.similar_sprint_ids)} similar historical sprints")
             lines.append("")
@@ -673,7 +904,7 @@ class ExplainerAgent:
         # Citations
         if state.evidence_citations:
             lines.append("## Citations")
-            for url in state.evidence_citations[:15]:
+            for url in state.evidence_citations[:25]:
                 lines.append(f"- {url}")
             lines.append("")
 

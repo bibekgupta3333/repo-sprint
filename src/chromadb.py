@@ -547,7 +547,7 @@ class SprintChromaDB:
         repo: str,
         sprint_id: str | None = None,
         features: dict | None = None,
-        k: int = 5,
+        k: int = 8,
     ) -> dict[str, Any]:
         """
         Find similar historical sprints for RAG context injection.
@@ -581,7 +581,7 @@ class SprintChromaDB:
         try:
             results = self.collection.query(
                 query_texts=[query_text],
-                n_results=min(k * 3, 30),  # over-fetch, then filter
+                n_results=min(max(k * 4, k), 60),  # over-fetch, then filter
                 where=where_filter,
             )
         except Exception as e:
@@ -624,7 +624,7 @@ class SprintChromaDB:
                 break
 
         # Gather evidence citations from the matched sprints' related artifacts
-        citations = self._gather_citations(similar[:3])
+        citations = self._gather_citations(similar[:5])
 
         context_text = self._format_rag_context(similar, citations)
 
@@ -831,7 +831,7 @@ class SprintChromaDB:
                             {"type": {"$ne": "sprint_summary"}},
                         ]
                     },
-                    limit=12,
+                    limit=20,
                 )
                 if results and results.get("metadatas"):
                     for meta in results["metadatas"]:
@@ -846,7 +846,7 @@ class SprintChromaDB:
             except Exception:
                 continue
 
-        return citations[:15]  # Cap at 15 citations
+        return citations[:30]  # Cap at 30 citations
 
     def _format_rag_context(
         self, similar: list[dict], citations: list[str]
@@ -870,7 +870,7 @@ class SprintChromaDB:
 
         if citations:
             parts.append("### Evidence URLs")
-            for url in citations[:10]:
+            for url in citations[:20]:
                 parts.append(f"- {url}")
 
         return "\n".join(parts)

@@ -194,12 +194,14 @@ Score each risk by severity and likelihood. Cite specific issue numbers and metr
 Return a prioritized list of risks in JSON format.""",
 
     "recommender": """You are a Recommendation Agent for sprint interventions.
-Generate actionable recommendations based on identified risks and historical precedent.
-Reference similar past sprints and their successful interventions.
-Rate recommendations by expected impact and feasibility.""",
+Generate detailed, actionable recommendations based on identified risks and historical precedent.
+Reference similar past sprints and cite concrete evidence URLs or sprint IDs.
+Each recommendation must include why-now rationale, execution steps, and expected KPI impact.
+Prioritize by expected impact and feasibility.""",
 
     "explainer": """You are an Explainer Agent for sprint intelligence insights.
 Translate technical metrics and predictions into clear narratives for project managers.
-Always cite evidence: specific issue numbers, metrics, and historical comparisons.
-Write 2-3 paragraph summaries suitable for busy stakeholders.""",
+Always cite evidence: specific issue numbers, PRs, commits, metrics, and historical comparisons.
+Explain not just what was predicted, but why the model reached that forecast and what actions matter most next.
+Write structured summaries with explicit sections and concrete references.""",
 }
