@@ -23,6 +23,7 @@ from fastapi.staticfiles import StaticFiles
 
 from src.agents.state import OrchestratorState, GitHubIssue
 from src.agents.orchestrator import MasterOrchestrator
+from src.agents.tools import sanitize_result_payload as guardrail_result_payload
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 INFERENCE_HISTORY_DIR = ROOT_DIR / "artifacts" / "inference_history"
@@ -71,13 +72,31 @@ def _org_history_path(org: str) -> Path:
     return INFERENCE_HISTORY_DIR / f"{_org_slug(org)}.json"
 
 
+def _sanitize_result_payload(result_json: dict[str, Any]) -> dict[str, Any]:
+    return guardrail_result_payload(result_json)
+
+
+def _state_to_result_json(result_state: OrchestratorState) -> dict[str, Any]:
+    result_dict = result_state.dict()
+
+    def _safe(obj):
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        raise TypeError
+
+    return _sanitize_result_payload(
+        json.loads(json.dumps(result_dict, default=_safe))
+    )
+
+
 def _build_result_summary(result_json: dict[str, Any]) -> dict[str, Any]:
-    analysis = result_json.get("sprint_analysis", {})
+    sanitized = _sanitize_result_payload(result_json)
+    analysis = sanitized.get("sprint_analysis", {})
     if not isinstance(analysis, dict):
         analysis = {}
 
-    risks = result_json.get("identified_risks", [])
-    recs = result_json.get("recommendations", [])
+    risks = sanitized.get("identified_risks", [])
+    recs = sanitized.get("recommendations", [])
 
     if not isinstance(risks, list):
         risks = []
@@ -94,6 +113,8 @@ def _build_result_summary(result_json: dict[str, Any]) -> dict[str, Any]:
 
 
 def _run_metadata(entry: dict[str, Any]) -> dict[str, Any]:
+    result_json = entry.get("result", {})
+    summary = _build_result_summary(result_json) if isinstance(result_json, dict) else entry.get("summary", {})
     return {
         "run_id": entry.get("run_id"),
         "created_at": entry.get("created_at"),
@@ -101,7 +122,7 @@ def _run_metadata(entry: dict[str, Any]) -> dict[str, Any]:
         "repositories": entry.get("repositories", []),
         "source": entry.get("source"),
         "eval_mode": entry.get("eval_mode"),
-        "summary": entry.get("summary", {}),
+        "summary": summary,
     }
 
 
@@ -132,6 +153,7 @@ def _persist_org_result(
     result_json: dict[str, Any],
 ) -> dict[str, Any]:
     INFERENCE_HISTORY_DIR.mkdir(parents=True, exist_ok=True)
+    sanitized_result = _sanitize_result_payload(result_json)
 
     now = datetime.now().isoformat()
     run_id = datetime.now().strftime("%Y%m%d%H%M%S%f")
@@ -142,8 +164,8 @@ def _persist_org_result(
         "repositories": repositories,
         "source": source,
         "eval_mode": eval_mode,
-        "summary": _build_result_summary(result_json),
-        "result": result_json,
+        "summary": _build_result_summary(sanitized_result),
+        "result": sanitized_result,
     }
 
     history = _load_org_history(organization)
@@ -196,6 +218,9 @@ def _collect_org_index() -> list[dict[str, Any]]:
         if not isinstance(latest, dict):
             latest = {}
 
+        latest_result = latest.get("result", {})
+        latest_summary = _build_result_summary(latest_result) if isinstance(latest_result, dict) else latest.get("summary", {})
+
         org_index.append(
             {
                 "organization": history.get("organization", history_path.stem),
@@ -203,7 +228,7 @@ def _collect_org_index() -> list[dict[str, Any]]:
                 "run_count": len(runs),
                 "latest_timestamp": latest.get("created_at"),
                 "latest_run_id": latest.get("run_id"),
-                "latest_summary": latest.get("summary", {}),
+                "latest_summary": latest_summary,
             }
         )
 
@@ -551,16 +576,7 @@ async def analyze(request: Request):
             None, orchestrator.invoke, input_state,
         )
 
-        result_dict = result_state.dict()
-
-        def _safe(obj):
-            if isinstance(obj, datetime):
-                return obj.isoformat()
-            raise TypeError
-
-        result_json = json.loads(
-            json.dumps(result_dict, default=_safe)
-        )
+        result_json = _state_to_result_json(result_state)
 
         organization = _extract_org_from_repo(repositories[0])
         run_entry: dict[str, Any] | None = None
@@ -652,16 +668,7 @@ async def analyze_mock(request: Request):
             None, orchestrator.invoke, input_state,
         )
 
-        result_dict = result_state.dict()
-
-        def _safe(obj):
-            if isinstance(obj, datetime):
-                return obj.isoformat()
-            raise TypeError
-
-        result_json = json.loads(
-            json.dumps(result_dict, default=_safe)
-        )
+        result_json = _state_to_result_json(result_state)
 
         organization = _extract_org_from_repo("Mintplex-Labs/anything-llm")
         run_entry: dict[str, Any] | None = None
@@ -700,7 +707,7 @@ async def get_last_result():
             status_code=404,
             content={"error": "No analysis has been run yet."},
         )
-    return JSONResponse(content=last_result)
+    return JSONResponse(content=_sanitize_result_payload(last_result))
 
 
 @app.get("/api/results/orgs")
@@ -748,11 +755,13 @@ async def get_org_result(organization: str, run_id: Optional[str] = None):
             content={"error": f"No valid runs found for organization '{organization}'."},
         )
 
+    selected_result = selected.get("result", {})
+
     return JSONResponse(
         content={
             "organization": history.get("organization", organization),
             "entry": _run_metadata(selected),
-            "result": selected.get("result", {}),
+            "result": _sanitize_result_payload(selected_result),
         }
     )
 
@@ -867,16 +876,7 @@ async def analyze_sprint(request: Request):
             None, orchestrator.invoke, input_state,
         )
 
-        result_dict = result_state.dict()
-
-        def _safe(obj):
-            if isinstance(obj, datetime):
-                return obj.isoformat()
-            raise TypeError
-
-        result_json = json.loads(
-            json.dumps(result_dict, default=_safe)
-        )
+        result_json = _state_to_result_json(result_state)
 
         run_entry: dict[str, Any] | None = None
         try:
@@ -968,16 +968,7 @@ async def analyze_query(request: Request):
             None, orchestrator.invoke, input_state,
         )
 
-        result_dict = result_state.dict()
-
-        def _safe(obj):
-            if isinstance(obj, datetime):
-                return obj.isoformat()
-            raise TypeError
-
-        result_json = json.loads(
-            json.dumps(result_dict, default=_safe)
-        )
+        result_json = _state_to_result_json(result_state)
 
         run_entry: dict[str, Any] | None = None
         try:

@@ -13,6 +13,7 @@ from datetime import datetime
 from src.agents.orchestrator import create_orchestrator
 from src.agents.state import OrchestratorState
 from src.agents.llm_config import get_ollama_client, get_ollama_config
+from src.agents.tools import sanitize_result_payload
 from src.research.harness import run_research_harness
 
 
@@ -94,6 +95,7 @@ def run_sprint_analysis(
             "execution_logs": final_state.execution_logs,
             "errors": final_state.errors,
         }
+        results = sanitize_result_payload(results)
 
         # Save output if requested
         if output_file:

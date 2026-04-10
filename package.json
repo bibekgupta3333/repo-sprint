@@ -62,7 +62,9 @@
     "chroma:ingest:vector-admin": "python3 -m src.chromadb --org Mintplex-Labs --repo vector-admin --query-test",
     "chroma:query": "python3 -m src.chromadb --query-test",
     "chroma:purge": "python3 -m src.chromadb --purge",
-    "chroma:purge:all": "python3 -m src.chromadb --purge"
+    "chroma:purge:all": "python3 -m src.chromadb --purge",
+
+    "ingest:batch": "python scripts/ingest_batch_repos.py"
   },
   "repository": {
     "type": "git",

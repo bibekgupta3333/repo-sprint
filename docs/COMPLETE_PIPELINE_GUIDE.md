@@ -202,28 +202,20 @@ erDiagram
 
 ### Phase 1: Data Ingestion (Sources & Collection)
 
+**Hybrid Approach: Local Mining + API Enrichment**
+
 ```mermaid
 graph LR
-    subgraph "Local Extraction (No API Limits)"
-        A1["Git Commands<br/>git log<br/>git show<br/>git diff"]
-        A2["LocalGitScraper<br/>Extract commits<br/>Parse diffs<br/>Extract metadata"]
-        A1 --> A2
-    end
-    
-    subgraph "API Fallback (Rate Limited)"
-        B1["GitHub API v3<br/>5K requests/hour<br/>Issues endpoint<br/>PRs endpoint"]
-        B2["GitHubScraper<br/>Paginated requests<br/>Windowed queries<br/>Retry logic"]
-        B1 --> B2
-    end
-    
-    subgraph "Hybrid Merge"
-        C1["LocalScraper<br/>Merge local + API<br/>Deduplicate<br/>Enrich PR/issue metadata"]
-    end
-    
-    A2 --> C1
-    B2 --> C1
-    
-    C1 -->|JSON Output| D["Raw Data Files<br/>{owner}_{repo}_raw.json"]
+  A["Repository<br/>.git directory"] --> B["LocalGitScraper<br/>No API calls"]
+  B --> C["Raw: Commits<br/>Diffs, refs"]
+  C --> D["Merge & Deduplicate"]
+  E["GitHub API<br/>5K/hr limit"] -.->|enrich| D
+  D --> F["Complete Dataset<br/>Full metadata"]
+  style A fill:#fff4e6
+  style B fill:#e6f3ff
+  style C fill:#f0e6ff
+  style E fill:#fff4e6
+  style F fill:#ccffcc
 ```
 
 **Hidden Logic**:
@@ -515,7 +507,7 @@ val_healthy = sample(real_healthy, size=0.06 * len(real_healthy))  # 4
 
 ## Detailed Process Breakdown
 
-### Data Flow Diagram: End-to-End
+### Data Flow Diagram: End-to-End (Full Detail)
 
 ```mermaid
 graph LR
@@ -550,6 +542,30 @@ graph LR
     M -->|KS test| P["16. Validation Report<br/>8/15 passing"]
     N -->|export| Q["17. JSONL Files<br/>h3_train.json<br/>h3_val.json<br/>h3_test.json"]
     O -->|export| Q
+```
+
+### Data Flow Diagram: Short Version (Slide-Friendly)
+
+```mermaid
+graph LR
+  A["<b>GitHub Repo<br/>65K commits</b>"] --> B["<b>Hybrid Data<br/>Local + API</b>"]
+  B --> C["<b>Sprint Windows<br/>14-day intervals</b>"]
+  C --> D["<b>Features & Labels<br/>25 metrics + at-risk</b>"]
+  D --> E["<b>Real Sprints<br/>74 labeled</b>"]
+  E --> F["<b>Synthetic Gen<br/>100 sprints</b>"]
+  E --> G["<b>Mixed Dataset<br/>174 total</b>"]
+  F --> G
+  G --> H["<b>Train/Val/Test<br/>70/15/15 split</b>"]
+  H --> I["<b>Validation ✓<br/>KS-tested</b>"]
+  style A fill:#fff4e6
+  style B fill:#e6f3ff
+  style C fill:#f0e6ff
+  style D fill:#e6ffe6
+  style E fill:#ffe6f0
+  style F fill:#fff9c4
+  style G fill:#f0e6ff
+  style H fill:#e6ffe6
+  style I fill:#ccffcc
 ```
 
 ---

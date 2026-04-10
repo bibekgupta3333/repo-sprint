@@ -13,6 +13,354 @@ import hashlib
 logger = logging.getLogger(__name__)
 
 
+def _coerce_float(value: Any, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _normalize_percentage(value: Any, default: float) -> float:
+    numeric = _coerce_float(value, default)
+    if 0.0 < numeric < 1.0:
+        numeric *= 100.0
+    return max(0.0, min(100.0, numeric))
+
+
+def _normalize_unit_interval(value: Any, default: float) -> float:
+    numeric = _coerce_float(value, default)
+    if 1.0 < numeric <= 100.0:
+        numeric /= 100.0
+    return max(0.0, min(1.0, numeric))
+
+
+def _normalize_non_negative_int(value: Any, default: int = 0) -> int:
+    try:
+        numeric = int(float(value))
+    except (TypeError, ValueError):
+        return default
+    return max(0, numeric)
+
+
+def _normalize_string(value: Any, default: str = "") -> str:
+    text = str(value or "").strip()
+    return text or default
+
+
+def _normalize_string_list(values: Any) -> list[str]:
+    if not isinstance(values, list):
+        return []
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        text = _normalize_string(value)
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        normalized.append(text)
+    return normalized
+
+
+def _normalize_issue_numbers(values: Any) -> list[int]:
+    if not isinstance(values, list):
+        return []
+
+    normalized: list[int] = []
+    seen: set[int] = set()
+    for value in values:
+        if isinstance(value, int):
+            issue_number = value
+        else:
+            digits = "".join(ch for ch in str(value or "") if ch.isdigit())
+            if not digits:
+                continue
+            issue_number = int(digits)
+
+        if issue_number <= 0 or issue_number in seen:
+            continue
+        seen.add(issue_number)
+        normalized.append(issue_number)
+
+    return normalized
+
+
+def _health_status_from_score(score: float) -> str:
+    if score >= 70.0:
+        return "on_track"
+    if score >= 45.0:
+        return "at_risk"
+    return "critical"
+
+
+def _normalize_health_status(value: Any, default: str = "at_risk") -> str:
+    normalized = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "ontrack": "on_track",
+        "on_track": "on_track",
+        "atrisk": "at_risk",
+        "at_risk": "at_risk",
+        "critical": "critical",
+    }
+    return aliases.get(normalized, default)
+
+
+def normalize_sprint_analysis(analysis: Optional[dict[str, Any]]) -> dict[str, Any]:
+    normalized = dict(analysis or {}) if isinstance(analysis, dict) else {}
+    normalized["completion_probability"] = round(
+        _normalize_percentage(normalized.get("completion_probability", 50.0), 50.0),
+        2,
+    )
+    normalized["confidence_score"] = round(
+        _normalize_unit_interval(normalized.get("confidence_score", 0.5), 0.5),
+        4,
+    )
+
+    for field_name in [
+        "health_score",
+        "delivery_score",
+        "momentum_score",
+        "quality_score",
+        "collaboration_score",
+        "dependency_risk_score",
+    ]:
+        if field_name in normalized:
+            normalized[field_name] = round(
+                _normalize_percentage(normalized.get(field_name, 0.0), 0.0),
+                2,
+            )
+
+    default_status = "at_risk"
+    if "health_score" in normalized:
+        default_status = _health_status_from_score(float(normalized["health_score"]))
+
+    normalized["health_status"] = _normalize_health_status(
+        normalized.get("health_status"),
+        default=default_status,
+    )
+
+    if "reasoning" in normalized and normalized["reasoning"] is not None:
+        normalized["reasoning"] = str(normalized["reasoning"])
+
+    if "predicted_completion_date" in normalized and normalized["predicted_completion_date"] is not None:
+        normalized["predicted_completion_date"] = str(normalized["predicted_completion_date"])
+
+    if "key_signals" in normalized:
+        normalized["key_signals"] = _normalize_string_list(normalized.get("key_signals"))
+
+    return normalized
+
+
+def normalize_risk_item(risk: Any) -> dict[str, Any]:
+    if hasattr(risk, "dict"):
+        source = risk.dict()
+    elif isinstance(risk, dict):
+        source = dict(risk)
+    else:
+        source = {}
+
+    normalized = {
+        "risk_type": _normalize_string(source.get("risk_type"), "delivery_risk").lower().replace("-", "_").replace(" ", "_"),
+        "severity": round(_normalize_unit_interval(source.get("severity", 0.5), 0.5), 4),
+        "description": _normalize_string(source.get("description"), "Risk identified from sprint signals"),
+        "affected_issues": _normalize_issue_numbers(source.get("affected_issues", [])),
+    }
+
+    evidence = _normalize_string(source.get("evidence"))
+    if evidence:
+        normalized["evidence"] = evidence
+
+    return normalized
+
+
+def normalize_recommendation_item(recommendation: Any) -> dict[str, Any]:
+    if hasattr(recommendation, "dict"):
+        source = recommendation.dict()
+    elif isinstance(recommendation, dict):
+        source = dict(recommendation)
+    else:
+        source = {}
+
+    priority = _normalize_string(source.get("priority"), "medium").lower()
+    priority_aliases = {
+        "urgent": "high",
+        "high": "high",
+        "med": "medium",
+        "medium": "medium",
+        "low": "low",
+    }
+
+    normalized = {
+        "title": _normalize_string(source.get("title"), "Mitigate sprint delivery risk"),
+        "description": _normalize_string(source.get("description"), "Apply a concrete mitigation with ownership and measurable checkpoints."),
+        "priority": priority_aliases.get(priority, "medium"),
+        "expected_impact": _normalize_string(source.get("expected_impact"), "Higher sprint predictability and lower blocker escalation risk"),
+        "action": _normalize_string(source.get("action"), "Assign an owner, define next actions, and review progress daily."),
+    }
+
+    evidence_source = _normalize_string(source.get("evidence_source"))
+    if evidence_source:
+        normalized["evidence_source"] = evidence_source
+
+    return normalized
+
+
+def normalize_run_metrics(metrics: Optional[dict[str, Any]]) -> dict[str, Any]:
+    normalized = dict(metrics or {}) if isinstance(metrics, dict) else {}
+
+    if "timestamp" in normalized and normalized["timestamp"] is not None:
+        normalized["timestamp"] = str(normalized["timestamp"])
+
+    if "latency_seconds" in normalized:
+        normalized["latency_seconds"] = round(
+            max(0.0, _coerce_float(normalized.get("latency_seconds", 0.0), 0.0)),
+            4,
+        )
+
+    for field_name in ["f1_score", "parse_success_rate", "fallback_rate"]:
+        if field_name in normalized and normalized[field_name] is not None:
+            normalized[field_name] = round(
+                _normalize_unit_interval(normalized.get(field_name, 0.0), 0.0),
+                4,
+            )
+
+    citation_quality = normalized.get("citation_quality", {})
+    if isinstance(citation_quality, dict):
+        total_citations = _normalize_non_negative_int(citation_quality.get("total_citations", 0), 0)
+        non_empty_citations = min(
+            total_citations,
+            _normalize_non_negative_int(citation_quality.get("non_empty_citations", 0), 0),
+        )
+        default_score = (non_empty_citations / max(1, total_citations)) if total_citations else 0.0
+        normalized["citation_quality"] = {
+            "total_citations": total_citations,
+            "non_empty_citations": non_empty_citations,
+            "score": round(
+                _normalize_unit_interval(citation_quality.get("score", default_score), default_score),
+                4,
+            ),
+        }
+
+    counts = normalized.get("counts", {})
+    if isinstance(counts, dict):
+        normalized["counts"] = {
+            key: _normalize_non_negative_int(counts.get(key, 0), 0)
+            for key in ["risks", "recommendations", "errors", "execution_logs"]
+        }
+
+    source_breakdown = normalized.get("source_breakdown", {})
+    if isinstance(source_breakdown, dict):
+        normalized["source_breakdown"] = {
+            str(key): (str(value) if value is not None else None)
+            for key, value in source_breakdown.items()
+        }
+
+    return normalized
+
+
+def sanitize_result_payload(result_payload: Optional[dict[str, Any]]) -> dict[str, Any]:
+    if not isinstance(result_payload, dict):
+        return {}
+
+    sanitized = dict(result_payload)
+
+    if isinstance(sanitized.get("sprint_analysis"), dict):
+        sanitized["sprint_analysis"] = normalize_sprint_analysis(sanitized.get("sprint_analysis"))
+
+    if isinstance(sanitized.get("analysis"), dict):
+        analysis_summary = dict(sanitized.get("analysis", {}))
+        if "completion_probability" in analysis_summary:
+            analysis_summary["completion_probability"] = round(
+                _normalize_percentage(analysis_summary.get("completion_probability", 50.0), 50.0),
+                2,
+            )
+        if "health_status" in analysis_summary or "health_score" in analysis_summary:
+            default_status = "at_risk"
+            if "health_score" in analysis_summary:
+                default_status = _health_status_from_score(
+                    _normalize_percentage(analysis_summary.get("health_score", 50.0), 50.0)
+                )
+            analysis_summary["health_status"] = _normalize_health_status(
+                analysis_summary.get("health_status"),
+                default=default_status,
+            )
+        for count_key in ["risks_count", "recommendations_count", "risk_count", "recommendation_count"]:
+            if count_key in analysis_summary:
+                analysis_summary[count_key] = _normalize_non_negative_int(analysis_summary.get(count_key, 0), 0)
+        sanitized["analysis"] = analysis_summary
+
+    if isinstance(sanitized.get("identified_risks"), list):
+        sanitized["identified_risks"] = [
+            normalize_risk_item(risk)
+            for risk in sanitized.get("identified_risks", [])
+        ]
+
+    if isinstance(sanitized.get("risks"), list):
+        sanitized["risks"] = [
+            normalize_risk_item(risk)
+            for risk in sanitized.get("risks", [])
+        ]
+
+    if isinstance(sanitized.get("recommendations"), list):
+        sanitized["recommendations"] = [
+            normalize_recommendation_item(recommendation)
+            for recommendation in sanitized.get("recommendations", [])
+        ]
+
+    if isinstance(sanitized.get("run_metrics"), dict):
+        sanitized["run_metrics"] = normalize_run_metrics(sanitized.get("run_metrics"))
+
+    if "narrative_explanation" in sanitized and sanitized["narrative_explanation"] is not None:
+        sanitized["narrative_explanation"] = str(sanitized["narrative_explanation"])
+
+    if "narrative" in sanitized and sanitized["narrative"] is not None:
+        sanitized["narrative"] = str(sanitized["narrative"])
+
+    if "evidence_citations" in sanitized:
+        sanitized["evidence_citations"] = _normalize_string_list(sanitized.get("evidence_citations"))
+
+    if "execution_logs" in sanitized:
+        sanitized["execution_logs"] = _normalize_string_list(sanitized.get("execution_logs"))
+
+    if "errors" in sanitized:
+        sanitized["errors"] = _normalize_string_list(sanitized.get("errors"))
+
+    return sanitized
+
+
+def guardrail_state_results(state: Any) -> Any:
+    from src.agents.state import Recommendation, RiskItem
+
+    if getattr(state, "sprint_analysis", None) is not None:
+        state.sprint_analysis = normalize_sprint_analysis(state.sprint_analysis)
+
+    if hasattr(state, "identified_risks"):
+        normalized_risks = []
+        for risk in list(getattr(state, "identified_risks", []) or []):
+            normalized_risks.append(RiskItem(**normalize_risk_item(risk)))
+        state.identified_risks = normalized_risks
+
+    if hasattr(state, "recommendations"):
+        normalized_recommendations = []
+        for recommendation in list(getattr(state, "recommendations", []) or []):
+            normalized_recommendations.append(Recommendation(**normalize_recommendation_item(recommendation)))
+        state.recommendations = normalized_recommendations
+
+    if hasattr(state, "evidence_citations"):
+        state.evidence_citations = _normalize_string_list(getattr(state, "evidence_citations", []))
+
+    if hasattr(state, "execution_logs"):
+        state.execution_logs = _normalize_string_list(getattr(state, "execution_logs", []))
+
+    if hasattr(state, "errors"):
+        state.errors = _normalize_string_list(getattr(state, "errors", []))
+
+    if getattr(state, "run_metrics", None):
+        state.run_metrics = normalize_run_metrics(state.run_metrics)
+
+    return state
+
+
 # ============================================================================
 # GitHub Data Tools
 # ============================================================================
@@ -700,14 +1048,17 @@ Return only valid JSON. No markdown code blocks.
         try:
             # Extract JSON from response
             json_str = response[response.find("{"):response.rfind("}")+1]
-            return json.loads(json_str)
+            parsed = json.loads(json_str)
+            if not isinstance(parsed, dict):
+                raise ValueError("Completion response must be a JSON object")
+            return normalize_sprint_analysis(parsed)
         except (json.JSONDecodeError, ValueError):
-            return {
+            return normalize_sprint_analysis({
                 "completion_probability": 50,
                 "health_status": "at_risk",
                 "confidence_score": 0.3,
                 "reasoning": f"Could not parse LLM response: {response[:100]}",
-            }
+            })
 
     def _parse_risk_response(self, response: str) -> dict[str, Any]:
         """Parse LLM risk analysis response."""

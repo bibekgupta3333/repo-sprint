@@ -8,7 +8,12 @@ from typing import Optional
 from langgraph.graph import StateGraph, END
 from src.agents.state import OrchestratorState
 from src.agents.llm_config import OllamaClient, SYSTEM_PROMPTS, get_ollama_client
-from src.agents.tools import ToolRegistry
+from src.agents.tools import (
+    ToolRegistry,
+    guardrail_state_results,
+    normalize_run_metrics,
+    normalize_sprint_analysis,
+)
 from src.agents.agents import (
     DataCollectorAgent,
     FeatureEngineerAgent,
@@ -217,7 +222,7 @@ class MasterOrchestrator:
         state.current_agent = "sprint_analyzer"
 
         try:
-            analysis = state.sprint_analysis or {}
+            analysis = normalize_sprint_analysis(state.sprint_analysis)
             temporal = state.features.get("temporal", {}) if isinstance(state.features, dict) else {}
             activity = state.features.get("activity", {}) if isinstance(state.features, dict) else {}
             code = state.features.get("code", {}) if isinstance(state.features, dict) else {}
@@ -251,6 +256,7 @@ class MasterOrchestrator:
                 + 0.10 * confidence
                 + 0.05 * (1.0 - min(1.0, dependency_risk))
             )
+            health_score = max(0.0, min(100.0, health_score))
 
             key_signals = []
             if resolution_rate < 0.5:
@@ -312,6 +318,7 @@ class MasterOrchestrator:
         """Explainer Agent node."""
         logger.info("=== Explainer Agent Starting ===")
         state.current_agent = "explainer"
+        state = guardrail_state_results(state)
         state = self.explainer.execute(state)
         state.workflow_complete = True
         return state
@@ -344,8 +351,9 @@ class MasterOrchestrator:
 
         # Normalize reducer-accumulated fields to avoid inflated run metrics.
         state_obj = deduplicate_state_collections(state_obj)
+        state_obj = guardrail_state_results(state_obj)
 
-        run_metrics = build_run_metrics(state_obj, started_at, finished_at)
+        run_metrics = normalize_run_metrics(build_run_metrics(state_obj, started_at, finished_at))
         artifact_path = persist_run_metrics(run_metrics)
         state_obj.run_metrics = run_metrics
         state_obj.run_metrics_artifact = artifact_path
