@@ -311,6 +311,33 @@ Highlight top 3 interventions with evidence."></textarea>
           </div>
         </div>
 
+        <div class="sec-title"><span>💡</span> Recommendations <span id="analyze-recs-source"></span></div>
+        <div class="item-list" id="analyze-recs-list" style="margin-bottom:1.25rem">
+          <div class="item-card"><div class="item-desc">Run an analysis to see recommendations here.</div></div>
+        </div>
+
+        <div class="sec-title"><span>🛡️</span> Identified Risks <span id="analyze-risk-source"></span></div>
+        <div class="item-list" id="analyze-risks" style="margin-bottom:1.25rem">
+          <div class="item-card"><div class="item-desc">Run an analysis to see identified risks here.</div></div>
+        </div>
+
+        <div class="sec-title"><span>🔗</span> Dependency Graph</div>
+        <div class="dep-graph-container" id="analyze-dep-graph" style="margin-bottom:1.25rem">
+          <div style="font-size:.78rem;color:var(--text-muted);text-align:center;padding:2rem">
+            Run an analysis to inspect cross-repository dependencies here.
+          </div>
+        </div>
+
+        <div class="sec-title"><span>🧲</span> RAG Context &amp; Evidence</div>
+        <div class="rag-panel" id="analyze-rag" style="margin-bottom:1.25rem">
+          <div style="font-size:.72rem;color:var(--text-muted)">Run an analysis to see retrieved evidence and historical context.</div>
+        </div>
+
+        <div class="sec-title"><span>📝</span> Sprint Intelligence Report</div>
+        <div class="narrative-box" id="analyze-narrative" style="margin-bottom:1.25rem">
+          No narrative generated yet. Run an analysis to populate this report.
+        </div>
+
         <div class="sec-title acc-toggle" data-acc="exec-logs-body" onclick="toggleAccordion('exec-logs-body')">
           <span class="arrow">▶</span><span>📋</span> Execution Logs &amp; Errors
         </div>
@@ -330,6 +357,11 @@ Highlight top 3 interventions with evidence."></textarea>
       <div class="sec-title"><span>🛡️</span> Identified Risks <span id="results-risk-source"></span></div>
       <div class="item-list" id="results-risks" style="margin-bottom:1.25rem">
         <div class="item-card"><div class="item-desc">No analysis data yet.</div></div>
+      </div>
+
+      <div class="sec-title"><span>💡</span> Recommendations <span id="results-rec-source"></span></div>
+      <div class="item-list" id="results-recommendations" style="margin-bottom:1.25rem">
+        <div class="item-card"><div class="item-desc">No recommendations yet. Run an analysis first.</div></div>
       </div>
 
       <div class="sec-title"><span>🧲</span> RAG Context &amp; Evidence</div>

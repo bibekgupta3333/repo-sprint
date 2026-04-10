@@ -2044,6 +2044,72 @@ function sourceBadge(s) {
   return `<span class="badge ${cls}">source: ${s}</span>`;
 }
 
+function buildRecommendationsHtml(recs, emptyMessage) {
+  return recs.length ? recs.map(rec => {
+    const priority = rec.priority || 'medium';
+    return `<div class="item-card">
+      <div class="item-header"><span class="item-title">${rec.title || 'Recommendation'}</span><span class="badge badge-${priority}">${priority}</span></div>
+      <div class="item-desc">${rec.description || ''}</div>
+      ${rec.action ? `<div class="item-desc" style="margin-top:.2rem;color:var(--emerald)">→ ${rec.action}</div>` : ''}
+      ${rec.expected_impact ? `<div class="item-desc" style="margin-top:.15rem;color:var(--text-muted)">Impact: ${rec.expected_impact}</div>` : ''}
+      ${rec.evidence_source ? `<div class="item-desc" style="margin-top:.1rem;color:var(--cyan);font-size:.68rem">Evidence: ${rec.evidence_source}</div>` : ''}
+    </div>`;
+  }).join('') : `<div class="item-card"><div class="item-desc">${emptyMessage}</div></div>`;
+}
+
+function buildRisksHtml(risks, emptyMessage) {
+  return risks.length ? risks.map(risk => {
+    const sev = risk.severity ?? 0;
+    const band = sev >= 0.7 ? 'high' : sev >= 0.4 ? 'medium' : 'low';
+    return `<div class="item-card"><div class="item-header"><span class="item-title">${(risk.risk_type || 'Risk').replace(/_/g, ' ')}</span><span class="badge badge-${band}">${band} · ${(sev * 100).toFixed(0)}%</span></div><div class="item-desc">${risk.description || ''}</div>${risk.affected_issues?.length ? `<div class="item-desc" style="margin-top:.2rem;color:var(--amber)">Affected issues: ${risk.affected_issues.join(', ')}</div>` : ''}</div>`;
+  }).join('') : `<div class="item-card"><div class="item-desc">${emptyMessage}</div></div>`;
+}
+
+function buildRagHtml(r) {
+  const sims = r.similar_sprint_ids || [];
+  const cites = r.evidence_citations || [];
+  const synth = r.synthetic_sprints || [];
+  const synthVal = r.synthetic_validation || {};
+
+  let ragHTML = `<div style="font-size:.72rem;margin-bottom:.4rem"><strong style="color:var(--cyan)">Similar Historical Sprints:</strong> ${sims.length ? sims.join(', ') : 'None retrieved'}</div>`;
+  ragHTML += `<div style="font-size:.72rem;margin-bottom:.4rem"><strong style="color:var(--cyan)">Synthetic Sprints:</strong> ${synth.length} scenarios · Embedded: ${r.synthetic_embedded_count || 0}</div>`;
+  if (Object.keys(synthVal).length) {
+    ragHTML += `<div style="font-size:.72rem;margin-bottom:.4rem"><strong style="color:var(--cyan)">Synthetic Validation:</strong> Realism score: ${(synthVal.realism_score ?? 0).toFixed(3)}</div>`;
+  }
+  const citationHtml = cites.length
+    ? `<div style="margin-top:.2rem">${cites.slice(0, 20).map(url => `<div style="margin:.12rem 0;word-break:break-all">• ${escapeHtml(url)}</div>`).join('')}</div>`
+    : '<span style="color:var(--text-muted)">No citations</span>';
+  ragHTML += `<div style="font-size:.72rem"><strong style="color:var(--cyan)">Evidence Citations:</strong>${citationHtml}</div>`;
+  return ragHTML;
+}
+
+function buildDependenciesHtml(r) {
+  const dep = r.dependency_graph || {};
+  const nodes = dep.nodes || [];
+  const edges = dep.edges || [];
+  const propagation = dep.risk_propagation || {};
+
+  let html = `<div style="margin-bottom:.5rem;font-size:.72rem;color:var(--text-muted)">Nodes: ${nodes.length} repositories · Edges: ${edges.length} dependencies</div>`;
+
+  if (nodes.length) {
+    html += '<div style="margin-bottom:.75rem">' + nodes.map(n => {
+      const riskP = propagation[n];
+      const riskStr = riskP !== undefined ? ` (propagation: ${(riskP * 100).toFixed(0)}%)` : '';
+      return `<span class="dep-node">${n}${riskStr}</span>`;
+    }).join(' ') + '</div>';
+  }
+
+  if (edges.length) {
+    html += edges.map(e =>
+      `<div class="dep-edge"><span>${e.source}</span><span class="arrow">→</span><span>${e.target}</span><span style="color:var(--text-muted)">[${e.type}]</span>${e.is_blocker ? '<span class="badge badge-high">blocker</span>' : ''}</div>`
+    ).join('');
+  } else {
+    html += '<div style="font-size:.72rem;color:var(--text-muted)">No cross-repo dependencies detected (single-repo analysis)</div>';
+  }
+
+  return html;
+}
+
 function renderResults(r) {
   const resultsArea = document.getElementById('results-area');
 
@@ -2087,6 +2153,39 @@ function renderResults(r) {
 
   // Charts
   renderCharts(r);
+
+  // Recommendations on analysis page
+  const recs = Array.isArray(r.recommendations) ? r.recommendations : [];
+  const analyzeRecSource = document.getElementById('analyze-recs-source');
+  const analyzeRecList = document.getElementById('analyze-recs-list');
+  if (analyzeRecSource) analyzeRecSource.innerHTML = sourceBadge(r.recommendation_source);
+  if (analyzeRecList) {
+    analyzeRecList.innerHTML = buildRecommendationsHtml(
+      recs,
+      'No recommendations generated yet. Run an analysis first.'
+    );
+  }
+
+  // Risks, evidence, and narrative on analysis page
+  const risks = Array.isArray(r.identified_risks) ? r.identified_risks : [];
+  const analyzeRiskSource = document.getElementById('analyze-risk-source');
+  const analyzeRiskList = document.getElementById('analyze-risks');
+  const analyzeDepGraph = document.getElementById('analyze-dep-graph');
+  const analyzeRag = document.getElementById('analyze-rag');
+  const analyzeNarrative = document.getElementById('analyze-narrative');
+  if (analyzeRiskSource) analyzeRiskSource.innerHTML = sourceBadge(r.risk_source);
+  if (analyzeRiskList) {
+    analyzeRiskList.innerHTML = buildRisksHtml(
+      risks,
+      'No risks identified in this analysis.'
+    );
+  }
+  if (analyzeDepGraph) analyzeDepGraph.innerHTML = buildDependenciesHtml(r);
+  if (analyzeRag) analyzeRag.innerHTML = buildRagHtml(r);
+  if (analyzeNarrative) {
+    const analyzeNarrativeText = r.narrative_explanation || 'No narrative generated.';
+    analyzeNarrative.innerHTML = renderNarrativeMarkdown(analyzeNarrativeText);
+  }
 
   // Show results on analyze page
   resultsArea.classList.add('visible');
@@ -2294,32 +2393,27 @@ function renderResultsPage(r) {
 
   // Risks
   document.getElementById('results-risk-source').innerHTML = sourceBadge(r.risk_source);
-  const risks = r.identified_risks || [];
-  document.getElementById('results-risks').innerHTML = risks.length ? risks.map(risk => {
-    const sev = risk.severity ?? 0;
-    const b = sev >= .7 ? 'high' : sev >= .4 ? 'medium' : 'low';
-    return `<div class="item-card"><div class="item-header"><span class="item-title">${(risk.risk_type || 'Risk').replace(/_/g, ' ')}</span><span class="badge badge-${b}">${b} · ${(sev * 100).toFixed(0)}%</span></div><div class="item-desc">${risk.description || ''}</div>${risk.affected_issues?.length ? `<div class="item-desc" style="margin-top:.2rem;color:var(--amber)">Affected issues: ${risk.affected_issues.join(', ')}</div>` : ''}</div>`;
-  }).join('') : '<div class="item-card"><div class="item-desc">No risks identified.</div></div>';
+  const risks = Array.isArray(r.identified_risks) ? r.identified_risks : [];
+  document.getElementById('results-risks').innerHTML = buildRisksHtml(
+    risks,
+    'No risks identified.'
+  );
+
+  // Recommendations
+  const recs = Array.isArray(r.recommendations) ? r.recommendations : [];
+  const resultsRecSource = document.getElementById('results-rec-source');
+  if (resultsRecSource) resultsRecSource.innerHTML = sourceBadge(r.recommendation_source);
+  document.getElementById('results-recommendations').innerHTML = buildRecommendationsHtml(
+    recs,
+    'No recommendations generated. Run an analysis first.'
+  );
 
   // Narrative
   const nar = r.narrative_explanation || 'No narrative generated.';
   document.getElementById('results-narrative').innerHTML = renderNarrativeMarkdown(nar);
 
   // RAG panel
-  const sims = r.similar_sprint_ids || [];
-  const cites = r.evidence_citations || [];
-  const synth = r.synthetic_sprints || [];
-  const synthVal = r.synthetic_validation || {};
-  let ragHTML = `<div style="font-size:.72rem;margin-bottom:.4rem"><strong style="color:var(--cyan)">Similar Historical Sprints:</strong> ${sims.length ? sims.join(', ') : 'None retrieved'}</div>`;
-  ragHTML += `<div style="font-size:.72rem;margin-bottom:.4rem"><strong style="color:var(--cyan)">Synthetic Sprints:</strong> ${synth.length} scenarios · Embedded: ${r.synthetic_embedded_count || 0}</div>`;
-  if (Object.keys(synthVal).length) {
-    ragHTML += `<div style="font-size:.72rem;margin-bottom:.4rem"><strong style="color:var(--cyan)">Synthetic Validation:</strong> Realism score: ${(synthVal.realism_score ?? 0).toFixed(3)}</div>`;
-  }
-  const citationHtml = cites.length
-    ? `<div style="margin-top:.2rem">${cites.slice(0, 20).map(url => `<div style="margin:.12rem 0;word-break:break-all">• ${escapeHtml(url)}</div>`).join('')}</div>`
-    : '<span style="color:var(--text-muted)">No citations</span>';
-  ragHTML += `<div style="font-size:.72rem"><strong style="color:var(--cyan)">Evidence Citations:</strong>${citationHtml}</div>`;
-  document.getElementById('results-rag').innerHTML = ragHTML;
+  document.getElementById('results-rag').innerHTML = buildRagHtml(r);
 
   // Execution logs
   const eLogs = r.execution_logs || [];
@@ -2335,30 +2429,7 @@ function renderResultsPage(r) {
 // ═══════════════════════════════════════════════════════════════
 
 function renderDependenciesPage(r) {
-  const dep = r.dependency_graph || {};
-  const nodes = dep.nodes || [];
-  const edges = dep.edges || [];
-  const propagation = dep.risk_propagation || {};
-
-  let html = `<div style="margin-bottom:.5rem;font-size:.72rem;color:var(--text-muted)">Nodes: ${nodes.length} repositories · Edges: ${edges.length} dependencies</div>`;
-
-  if (nodes.length) {
-    html += '<div style="margin-bottom:.75rem">' + nodes.map(n => {
-      const riskP = propagation[n];
-      const riskStr = riskP !== undefined ? ` (propagation: ${(riskP * 100).toFixed(0)}%)` : '';
-      return `<span class="dep-node">${n}${riskStr}</span>`;
-    }).join(' ') + '</div>';
-  }
-
-  if (edges.length) {
-    html += edges.map(e =>
-      `<div class="dep-edge"><span>${e.source}</span><span class="arrow">→</span><span>${e.target}</span><span style="color:var(--text-muted)">[${e.type}]</span>${e.is_blocker ? '<span class="badge badge-high">blocker</span>' : ''}</div>`
-    ).join('');
-  } else {
-    html += '<div style="font-size:.72rem;color:var(--text-muted)">No cross-repo dependencies detected (single-repo analysis)</div>';
-  }
-
-  document.getElementById('dep-graph-content').innerHTML = html;
+  document.getElementById('dep-graph-content').innerHTML = buildDependenciesHtml(r);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -2368,16 +2439,10 @@ function renderDependenciesPage(r) {
 function renderRecommendationsPage(r) {
   document.getElementById('recs-source-badge').innerHTML = sourceBadge(r.recommendation_source);
   const recs = r.recommendations || [];
-  document.getElementById('recs-list').innerHTML = recs.length ? recs.map(rec => {
-    const p = rec.priority || 'medium';
-    return `<div class="item-card">
-      <div class="item-header"><span class="item-title">${rec.title || 'Recommendation'}</span><span class="badge badge-${p}">${p}</span></div>
-      <div class="item-desc">${rec.description || ''}</div>
-      ${rec.action ? `<div class="item-desc" style="margin-top:.2rem;color:var(--emerald)">→ ${rec.action}</div>` : ''}
-      ${rec.expected_impact ? `<div class="item-desc" style="margin-top:.15rem;color:var(--text-muted)">Impact: ${rec.expected_impact}</div>` : ''}
-      ${rec.evidence_source ? `<div class="item-desc" style="margin-top:.1rem;color:var(--cyan);font-size:.68rem">Evidence: ${rec.evidence_source}</div>` : ''}
-    </div>`;
-  }).join('') : '<div class="item-card"><div class="item-desc">No recommendations generated. Run an analysis first.</div></div>';
+  document.getElementById('recs-list').innerHTML = buildRecommendationsHtml(
+    recs,
+    'No recommendations generated. Run an analysis first.'
+  );
 }
 
 function getTimelineCurrentRunMeta() {
