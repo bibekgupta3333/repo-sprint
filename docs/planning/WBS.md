@@ -14,7 +14,7 @@
 | **Phase 1: Research & Planning** | ✅ Completed | Feb 14, 2026 | Feb 28, 2026 | Mar 1, 2026 | 100% |
 | **Phase 2: Data Collection & Infrastructure** | 🟢 In Progress | Mar 1, 2026 | Mar 21, 2026 | - | 75% |
 | **Phase 3: Backend Development** | ⚪ Not Started | Mar 22, 2026 | Apr 11, 2026 | - | 0% |
-| **Phase 4: Agent Development** | ⚪ Not Started | Apr 12, 2026 | May 2, 2026 | - | 0% |
+| **Phase 4: Agent Development** | 🟢 In Progress | Apr 12, 2026 | May 2, 2026 | - | 10% (benchmarking) |
 | **Phase 5: Frontend Development** | ⚪ Not Started | May 3, 2026 | May 16, 2026 | - | 0% |
 | **Phase 6: ML Validation & Testing** | ⚪ Not Started | May 17, 2026 | May 30, 2026 | - | 0% |
 
@@ -541,6 +541,85 @@
   - **Status**: ⚪ Not Started
   - **Output**: WebSocket endpoint  
   - **Use Case**: Push analysis results to frontend instantly
+
+### 4.4 Agent Benchmarking & Local Profiling
+**Duration**: Week 10 (Apr 19-25, 2026) — *Parallel with 4.3*  
+**Owner**: ML Engineer  
+**Status**: ⏳ **IN PROGRESS** (10% — foundational test harness created)
+
+#### Tasks:
+- [x] **4.4.1** Create agent benchmark harness
+  - **Status**: ✅ In Progress (Mar 11, 2026)
+  - **Output**: `test_agent_benchmark.py` — comprehensive local benchmarking suite
+  - **Features**: Single-run latency, consistency testing (3 runs), output structure validation
+  - **Location**: Root-level test file, artifacts saved to `artifacts/benchmarks/`
+
+- [ ] **4.4.2** Implement latency profiling by agent stage
+  - **Status**: ⚪ Not Started
+  - **Output**: Per-agent execution time breakdown
+  - **Goal**: Identify bottleneck agents (target <60s total)
+  - **Tool**: Python `cProfile` or custom timing decorators
+
+- [ ] **4.4.3** Benchmark citation accuracy (hallucination detection)
+  - **Status**: ⏳ In Progress (embedded in 4.4.1)
+  - **Test**: Verify all evidence citations reference actual input data
+  - **Metric**: Citation accuracy rate (target >95%)
+  - **Output**: `artifacts/benchmarks/citation_accuracy_*.json`
+
+- [ ] **4.4.4** Benchmark output structure validity
+  - **Status**: ⏳ In Progress (embedded in 4.4.1)
+  - **Test**: Verify each agent produces expected JSON schema
+  - **Coverage**: All required fields present and properly typed
+  - **Output**: Validation report with schema mismatches
+
+- [ ] **4.4.5** Create consistency benchmark (3x runs)
+  - **Status**: ⏳ In Progress (embedded in 4.4.1)
+  - **Test**: Run agents 3x with identical input
+  - **Metric**: Latency variance (stddev), output consistency
+  - **Goal**: Detect non-deterministic behavior
+
+- [ ] **4.4.6** Benchmark resource utilization (RAM, CPU)
+  - **Status**: ⚪ Not Started
+  - **Output**: `artifacts/benchmarks/resource_usage_*.json`
+  - **Tool**: `memory_profiler`, `psutil`
+  - **Goal**: <16GB peak RAM, <50% CPU sustained
+
+- [ ] **4.4.7** Create benchmark regression dashboard
+  - **Status**: ⚪ Not Started
+  - **Output**: `notebooks/benchmark_dashboard.ipynb`
+  - **Purpose**: Track performance over time (latency, accuracy trends)
+  - **Tool**: Plotly with benchmark history comparison
+
+- [ ] **4.4.8** Document benchmark procedures & baselines
+  - **Status**: ⚪ Not Started
+  - **Output**: `docs/benchmarking_guide.md`
+  - **Content**: How to run benchmarks locally, interpret results, target SLOs
+  - **Target SLOs**: 
+    - Latency: <30s p50, <60s p95
+    - Citation accuracy: >95%
+    - Output validity: 100%
+    - Consistency: <5s stddev
+
+#### Running Agent Benchmarks Locally
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Run all benchmarks
+python test_agent_benchmark.py
+
+# Results saved to: artifacts/benchmarks/benchmark_<timestamp>.json
+
+# View summary
+cat artifacts/benchmarks/benchmark_*.json | jq '.benchmarks | keys'
+```
+
+**Expected Output** (~2-3 minutes):
+- Single-run latency: 15-40 seconds
+- Consistency: ±5 second variance across 3 runs  
+- Citation accuracy: 85-100% (depends on LLM parsing)
+- Structure validity: 100% (all required fields present)
 
 ---
 
