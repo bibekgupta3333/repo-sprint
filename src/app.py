@@ -534,7 +534,64 @@ async def health():
     }
 
 
-@app.post("/api/analyze")
+@app.get("/api/models")
+async def get_available_models():
+    """Fetch list of available Ollama models."""
+    if orchestrator is None:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": "Orchestrator not initialised",
+                "models": []
+            },
+        )
+
+    try:
+        import httpx
+        ollama_base_url = orchestrator.ollama_client.base_url
+        logger.debug(f"Fetching models from: {ollama_base_url}/api/tags")
+        with httpx.Client(timeout=10) as client:
+            response = client.get(f"{ollama_base_url}/api/tags")
+            response.raise_for_status()
+            data = response.json()
+            models = data.get("models", [])
+            logger.debug(f"Found {len(models)} models from Ollama")
+
+            # Extract model names and additional info
+            model_list = []
+            for model in models:
+                model_name = model.get("name", "")
+                if model_name:
+                    model_list.append({
+                        "name": model_name,
+                        "digest": model.get("digest", ""),
+                        "size": model.get("size", 0),
+                    })
+
+            # Sort by name
+            model_list.sort(key=lambda x: x["name"])
+
+            current_model = orchestrator.ollama_client.config.model_name
+
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "status": "ok",
+                    "models": model_list,
+                    "current_model": current_model,
+                },
+            )
+    except Exception as e:
+        logger.warning(f"Failed to fetch available models: {e}")
+        import traceback
+        logger.debug(traceback.format_exc())
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": f"Failed to fetch models: {str(e)}",
+                "models": []
+            },
+        )
 async def analyze(request: Request):
     global last_result
     if orchestrator is None:
@@ -551,6 +608,7 @@ async def analyze(request: Request):
     body = await request.json()
     repositories = body.get("repositories", [])
     eval_mode = body.get("eval_mode", "resilient")
+    model_name = body.get("model", None)
 
     if not repositories:
         return JSONResponse(
@@ -559,45 +617,60 @@ async def analyze(request: Request):
         )
 
     try:
-        now = datetime.now()
-        input_state = OrchestratorState(
-            repositories=repositories,
-            eval_mode=eval_mode,
-            milestone_data={
-                "created_at": (
-                    now - timedelta(days=14)
-                ).isoformat(),
-                "due_on": now.isoformat(),
-            },
-        )
+        # Store original model
+        original_model = orchestrator.ollama_client.config.model_name
 
-        loop = asyncio.get_event_loop()
-        result_state = await loop.run_in_executor(
-            None, orchestrator.invoke, input_state,
-        )
+        # Switch model if provided
+        if model_name and model_name != original_model:
+            orchestrator.ollama_client.config.model_name = model_name
+            logger.info(f"Switched model from {original_model} to {model_name}")
 
-        result_json = _state_to_result_json(result_state)
-
-        organization = _extract_org_from_repo(repositories[0])
-        run_entry: dict[str, Any] | None = None
         try:
-            run_entry = _persist_org_result(
-                organization=organization,
+            now = datetime.now()
+            input_state = OrchestratorState(
                 repositories=repositories,
                 eval_mode=eval_mode,
-                source="analyze",
-                result_json=result_json,
+                milestone_data={
+                    "created_at": (
+                        now - timedelta(days=14)
+                    ).isoformat(),
+                    "due_on": now.isoformat(),
+                },
             )
-        except Exception as persist_exc:
-            logger.warning("Could not persist org run history: %s", persist_exc)
 
-        last_result = result_json
-        return JSONResponse(content={
-            "status": "success",
-            "organization": organization,
-            "run_id": run_entry.get("run_id") if run_entry else None,
-            "result": result_json,
-        })
+            loop = asyncio.get_event_loop()
+            result_state = await loop.run_in_executor(
+                None, orchestrator.invoke, input_state,
+            )
+
+            result_json = _state_to_result_json(result_state)
+
+            organization = _extract_org_from_repo(repositories[0])
+            run_entry: dict[str, Any] | None = None
+            try:
+                run_entry = _persist_org_result(
+                    organization=organization,
+                    repositories=repositories,
+                    eval_mode=eval_mode,
+                    source="analyze",
+                    result_json=result_json,
+                )
+            except Exception as persist_exc:
+                logger.warning("Could not persist org run history: %s", persist_exc)
+
+            last_result = result_json
+            return JSONResponse(content={
+                "status": "success",
+                "organization": organization,
+                "run_id": run_entry.get("run_id") if run_entry else None,
+                "result": result_json,
+                "model_used": model_name or original_model,
+            })
+        finally:
+            # Restore original model
+            if model_name and model_name != original_model:
+                orchestrator.ollama_client.config.model_name = original_model
+                logger.info(f"Restored model to {original_model}")
 
     except Exception as exc:
         tb = traceback.format_exc()
@@ -812,6 +885,7 @@ async def analyze_sprint(request: Request):
     repo = body.get("repo", "").strip()
     sprint_data = body.get("sprint_data")
     eval_mode = body.get("eval_mode", "resilient")
+    model_name = body.get("model", None)
 
     if not owner or not repo:
         return JSONResponse(
@@ -826,77 +900,92 @@ async def analyze_sprint(request: Request):
         )
 
     try:
-        # Parse sprint data — accept single sprint or array
-        sprint = sprint_data if isinstance(sprint_data, dict) else (
-            sprint_data[0] if isinstance(sprint_data, list) and sprint_data else {}
-        )
+        # Store original model
+        original_model = orchestrator.ollama_client.config.model_name
 
-        now = datetime.now()
+        # Switch model if provided
+        if model_name and model_name != original_model:
+            orchestrator.ollama_client.config.model_name = model_name
+            logger.info(f"Switched model from {original_model} to {model_name}")
 
-        # Extract issues from sprint data
-        issues = []
-        for raw_issue in sprint.get("issues", []):
-            issues.append(GitHubIssue(
-                number=raw_issue.get("number", 0),
-                title=raw_issue.get("title", ""),
-                body=raw_issue.get("body"),
-                state=raw_issue.get("state", "open"),
-                labels=raw_issue.get("labels", []),
-                created_at=raw_issue.get("created_at"),
-                updated_at=raw_issue.get("updated_at"),
-            ))
-
-        # Extract PRs
-        prs = sprint.get("pull_requests", sprint.get("prs", []))
-
-        # Extract commits
-        commits = sprint.get("commits", [])
-
-        # Build milestone data from sprint dates
-        start_date = sprint.get("start_date", (now - timedelta(days=14)).isoformat())
-        end_date = sprint.get("end_date", now.isoformat())
-
-        repository_str = f"{owner}/{repo}"
-
-        input_state = OrchestratorState(
-            repositories=[repository_str],
-            sprint_id=sprint.get("sprint_id", "user_sprint"),
-            eval_mode=eval_mode,
-            github_issues=issues,
-            github_prs=prs,
-            commits=commits,
-            milestone_data={
-                "created_at": start_date,
-                "due_on": end_date,
-            },
-        )
-
-        loop = asyncio.get_event_loop()
-        result_state = await loop.run_in_executor(
-            None, orchestrator.invoke, input_state,
-        )
-
-        result_json = _state_to_result_json(result_state)
-
-        run_entry: dict[str, Any] | None = None
         try:
-            run_entry = _persist_org_result(
-                organization=owner,
-                repositories=[repository_str],
-                eval_mode=eval_mode,
-                source="analyze_sprint",
-                result_json=result_json,
+            # Parse sprint data — accept single sprint or array
+            sprint = sprint_data if isinstance(sprint_data, dict) else (
+                sprint_data[0] if isinstance(sprint_data, list) and sprint_data else {}
             )
-        except Exception as persist_exc:
-            logger.warning("Could not persist org run history: %s", persist_exc)
 
-        last_result = result_json
-        return JSONResponse(content={
-            "status": "success",
-            "organization": owner,
-            "run_id": run_entry.get("run_id") if run_entry else None,
-            "result": result_json,
-        })
+            now = datetime.now()
+
+            # Extract issues from sprint data
+            issues = []
+            for raw_issue in sprint.get("issues", []):
+                issues.append(GitHubIssue(
+                    number=raw_issue.get("number", 0),
+                    title=raw_issue.get("title", ""),
+                    body=raw_issue.get("body"),
+                    state=raw_issue.get("state", "open"),
+                    labels=raw_issue.get("labels", []),
+                    created_at=raw_issue.get("created_at"),
+                    updated_at=raw_issue.get("updated_at"),
+                ))
+
+            # Extract PRs
+            prs = sprint.get("pull_requests", sprint.get("prs", []))
+
+            # Extract commits
+            commits = sprint.get("commits", [])
+
+            # Build milestone data from sprint dates
+            start_date = sprint.get("start_date", (now - timedelta(days=14)).isoformat())
+            end_date = sprint.get("end_date", now.isoformat())
+
+            repository_str = f"{owner}/{repo}"
+
+            input_state = OrchestratorState(
+                repositories=[repository_str],
+                sprint_id=sprint.get("sprint_id", "user_sprint"),
+                eval_mode=eval_mode,
+                github_issues=issues,
+                github_prs=prs,
+                commits=commits,
+                milestone_data={
+                    "created_at": start_date,
+                    "due_on": end_date,
+                },
+            )
+
+            loop = asyncio.get_event_loop()
+            result_state = await loop.run_in_executor(
+                None, orchestrator.invoke, input_state,
+            )
+
+            result_json = _state_to_result_json(result_state)
+
+            run_entry: dict[str, Any] | None = None
+            try:
+                run_entry = _persist_org_result(
+                    organization=owner,
+                    repositories=[repository_str],
+                    eval_mode=eval_mode,
+                    source="analyze_sprint",
+                    result_json=result_json,
+                )
+            except Exception as persist_exc:
+                logger.warning("Could not persist org run history: %s", persist_exc)
+
+            last_result = result_json
+            return JSONResponse(content={
+                "status": "success",
+                "organization": owner,
+                "run_id": run_entry.get("run_id") if run_entry else None,
+                "result": result_json,
+                "model_used": model_name or original_model,
+            })
+        finally:
+            # Restore original model
+            if model_name and model_name != original_model:
+                orchestrator.ollama_client.config.model_name = original_model
+                logger.info(f"Restored model to {original_model}")
 
     except Exception as exc:
         tb = traceback.format_exc()
@@ -922,6 +1011,7 @@ async def analyze_query(request: Request):
     repo = body.get("repo", "").strip()
     query_text = body.get("query_text", "").strip()
     eval_mode = body.get("eval_mode", "resilient")
+    model_name = body.get("model", None)
 
     if not owner or not repo:
         return JSONResponse(
@@ -936,59 +1026,74 @@ async def analyze_query(request: Request):
         )
 
     try:
-        now = datetime.now()
-        repository_str = f"{owner}/{repo}"
+        # Store original model
+        original_model = orchestrator.ollama_client.config.model_name
 
-        # Seed the pipeline with user-provided context so reasoning agents can use it.
-        query_issue = GitHubIssue(
-            number=0,
-            title="User Query Context",
-            body=query_text,
-            state="open",
-            labels=["query_input"],
-            created_at=now.isoformat(),
-            updated_at=now.isoformat(),
-        )
+        # Switch model if provided
+        if model_name and model_name != original_model:
+            orchestrator.ollama_client.config.model_name = model_name
+            logger.info(f"Switched model from {original_model} to {model_name}")
 
-        input_state = OrchestratorState(
-            repositories=[repository_str],
-            eval_mode=eval_mode,
-            github_issues=[query_issue],
-            github_prs=[],
-            commits=[],
-            milestone_data={
-                "created_at": (now - timedelta(days=14)).isoformat(),
-                "due_on": now.isoformat(),
-                "query_context": query_text,
-            },
-        )
-
-        loop = asyncio.get_event_loop()
-        result_state = await loop.run_in_executor(
-            None, orchestrator.invoke, input_state,
-        )
-
-        result_json = _state_to_result_json(result_state)
-
-        run_entry: dict[str, Any] | None = None
         try:
-            run_entry = _persist_org_result(
-                organization=owner,
+            now = datetime.now()
+            repository_str = f"{owner}/{repo}"
+
+            # Seed the pipeline with user-provided context so reasoning agents can use it.
+            query_issue = GitHubIssue(
+                number=0,
+                title="User Query Context",
+                body=query_text,
+                state="open",
+                labels=["query_input"],
+                created_at=now.isoformat(),
+                updated_at=now.isoformat(),
+            )
+
+            input_state = OrchestratorState(
                 repositories=[repository_str],
                 eval_mode=eval_mode,
-                source="analyze_query",
-                result_json=result_json,
+                github_issues=[query_issue],
+                github_prs=[],
+                commits=[],
+                milestone_data={
+                    "created_at": (now - timedelta(days=14)).isoformat(),
+                    "due_on": now.isoformat(),
+                    "query_context": query_text,
+                },
             )
-        except Exception as persist_exc:
-            logger.warning("Could not persist org run history: %s", persist_exc)
 
-        last_result = result_json
-        return JSONResponse(content={
-            "status": "success",
-            "organization": owner,
-            "run_id": run_entry.get("run_id") if run_entry else None,
-            "result": result_json,
-        })
+            loop = asyncio.get_event_loop()
+            result_state = await loop.run_in_executor(
+                None, orchestrator.invoke, input_state,
+            )
+
+            result_json = _state_to_result_json(result_state)
+
+            run_entry: dict[str, Any] | None = None
+            try:
+                run_entry = _persist_org_result(
+                    organization=owner,
+                    repositories=[repository_str],
+                    eval_mode=eval_mode,
+                    source="analyze_query",
+                    result_json=result_json,
+                )
+            except Exception as persist_exc:
+                logger.warning("Could not persist org run history: %s", persist_exc)
+
+            last_result = result_json
+            return JSONResponse(content={
+                "status": "success",
+                "organization": owner,
+                "run_id": run_entry.get("run_id") if run_entry else None,
+                "result": result_json,
+                "model_used": model_name or original_model,
+            })
+        finally:
+            # Restore original model
+            if model_name and model_name != original_model:
+                orchestrator.ollama_client.config.model_name = original_model
+                logger.info(f"Restored model to {original_model}")
 
     except Exception as exc:
         tb = traceback.format_exc()

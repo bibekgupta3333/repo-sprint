@@ -84,6 +84,11 @@ const AppState = {
   },
   charts: {},
   dashboardCharts: {},
+  models: {
+    available: [],
+    current: null,
+    selected: null,
+  },
 };
 
 function getStoredTheme() {
@@ -1941,6 +1946,7 @@ async function runAnalysis(mode) {
       repo,
       query_text: queryText,
       eval_mode: evalMode,
+      model: AppState.models.selected || undefined,
     };
   } else if (sprintJsonStr) {
     url = '/api/analyze/sprint';
@@ -1961,6 +1967,7 @@ async function runAnalysis(mode) {
       repo: repo,
       sprint_data: sprintData,
       eval_mode: evalMode,
+      model: AppState.models.selected || undefined,
     };
   } else {
     url = '/api/analyze';
@@ -1974,7 +1981,7 @@ async function runAnalysis(mode) {
       AppState.isRunning = false;
       return;
     }
-    payload = { repositories: [repoStr], eval_mode: evalMode };
+    payload = { repositories: [repoStr], eval_mode: evalMode, model: AppState.models.selected || undefined };
   }
 
   try {
@@ -3819,6 +3826,86 @@ async function checkHealth() {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// Ollama Model Selection
+// ═══════════════════════════════════════════════════════════════
+
+async function loadAvailableModels() {
+  try {
+    console.log('Fetching available models from /api/models...');
+    const resp = await fetch('/api/models');
+    console.log('API response status:', resp.status);
+    const data = await resp.json();
+    console.log('API response data:', data);
+
+    if (data.status === 'ok' && data.models) {
+      console.log('Successfully loaded', data.models.length, 'models');
+      AppState.models.available = data.models;
+      AppState.models.current = data.current_model;
+      AppState.models.selected = AppState.models.current;
+      console.log('AppState.models updated:', AppState.models);
+      populateModelSelector();
+    } else {
+      console.warn('Failed to load models:', data.error);
+      logger.warn('Failed to load models:', data.error);
+      showToast('Could not load available models', 'warning');
+    }
+  } catch (error) {
+    console.error('Error fetching models:', error);
+    logger.error('Error fetching models:', error);
+    showToast('Failed to fetch available models', 'warning');
+  }
+}
+
+function populateModelSelector() {
+  const selector = document.getElementById('model-selector');
+  console.log('populateModelSelector called. Selector element:', selector);
+  if (!selector) {
+    console.warn('Model selector element not found in DOM');
+    return;
+  }
+
+  selector.innerHTML = '';
+
+  if (AppState.models.available.length === 0) {
+    console.warn('No models available to populate');
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = 'No models available';
+    option.disabled = true;
+    selector.appendChild(option);
+    return;
+  }
+
+  console.log('Populating selector with', AppState.models.available.length, 'models');
+  AppState.models.available.forEach(model => {
+    const option = document.createElement('option');
+    option.value = model.name;
+
+    // Format model display name
+    let displayName = model.name;
+    if (model.name === AppState.models.current) {
+      displayName += ' (default)';
+    }
+    option.textContent = displayName;
+
+    // Select the current model by default
+    if (model.name === AppState.models.current) {
+      option.selected = true;
+    }
+
+    selector.appendChild(option);
+  });
+
+  console.log('Model selector populated with', selector.options.length - 1, 'options');
+
+  // Add change event listener
+  selector.addEventListener('change', (e) => {
+    AppState.models.selected = e.target.value || AppState.models.current;
+    console.log('Model selected changed to:', AppState.models.selected);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
 // Settings
 // ═══════════════════════════════════════════════════════════════
 
@@ -4077,6 +4164,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   setInputMode(AppState.inputMode);
   navigateTo(AppState.currentPage || 'analyze');
   loadSprintFiles();
+  await loadAvailableModels();
 
   await refreshOrganizationIndex();
   if (AppState.deepLink.pendingRunId && AppState.selectedOrganization) {
