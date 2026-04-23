@@ -572,4 +572,226 @@ Model: `llama3` via Ollama · `temperature=0` · `timeout=60s`.
 
 ---
 
+## Appendix E — Anticipated Professor Questions (per slide)
+
+Short, ready-to-say answers. One or two sentences each. Grouped by slide so you can scan fast during the Question-and-Answer session. Questions are written with complete terminology — no abbreviations or shortcuts.
+
+### Slide 1 — Title
+
+- **Q: Why did you frame this as binary classification (at-risk versus healthy) and not as a continuous risk score from zero to one hundred?**
+  A: Binary gives a clean decision boundary and a clean F1 metric. We still expose the probability and health score in the output — see Slide 13.
+- **Q: Why is the F1 score of 0.857 reported on only 8 sprints for the agentic system? Isn't the sample size too small to draw conclusions?**
+  A: The agentic system runs end-to-end through a large language model, so we evaluated a balanced slice by hand. The other four baselines use the full 309-sprint test set. We flag this as a limitation.
+- **Q: What does the word "agentic" actually mean in the context of this project?**
+  A: Eleven small components arranged in a LangGraph directed acyclic graph, four of them calling the large language model with specialized prompts, the rest running as deterministic Python.
+
+### Slide 2 — Problem & Motivation
+
+- **Q: Where does the statistic that thirty-four percent of failures are cross-repository come from?**
+  A: Proposal literature review (Bird et al. 2009, plus the ICSE 2018 networked-classification paper). It is cited, not measured by us.
+- **Q: Why not just use the free tier of Jira for sprint tracking?**
+  A: The free tier has no roadmap analytics and no sprint-health signal. You have to pay for Advanced Roadmaps to get the data we are producing.
+- **Q: Aren't you solving a tooling problem rather than a research problem?**
+  A: The tooling gap motivates the work, but the research question is whether a local, small-model, retrieval-augmented system can match a cloud large language model on trustworthy explanation — that is a research claim.
+
+### Slide 3 — Research Question
+
+- **Q: Which of the five research sub-questions is the most important one?**
+  A: Research Question 1 — whether retrieval actually grounds the explanation. Everything else is operational. Without it the system is just another classifier.
+- **Q: How do you measure "trustworthy" in a quantitative way?**
+  A: Citation parse-rate (does every recommendation cite a real uniform resource locator?) plus manual audit on the demo run. We do not yet have a human Likert-scale study — that is future work.
+- **Q: Research Question 5 is just an engineering constraint. Why do you call it a research question?**
+  A: Because "laptop-runnable" is a hard constraint that changes the model choice. If we drop that constraint the whole system design changes.
+
+### Slide 4 — System Overview
+
+- **Q: Why did you choose five pipeline stages and not three or seven?**
+  A: Each stage maps to a distinct machine-learning concept (curation, representation, classification, retrieval, evaluation). Fewer stages would hide the bug we found at the curation-to-classification boundary.
+- **Q: Where does the bug-fix story fit into this architecture?**
+  A: Stage 1 was silently handing empty feature vectors to Stage 3. The five-stage layout is exactly what made that visible.
+
+### Slide 5 — Dataset Composition
+
+- **Q: Why did you use only seventeen repositories instead of one hundred?**
+  A: We ingested full event histories (around 280 thousand documents). Scaling to one hundred repositories is mostly a compute problem, not a methodology problem — it is on the future-work list.
+- **Q: Five repositories carry over sixty percent of the data volume. Does that bias the model?**
+  A: For the tabular models, yes, which is one reason we use rates (merge rate, resolution rate) instead of absolute counts. For the agentic model, retrieval is per-repository so the bias is smaller.
+- **Q: How are sprints defined when these open-source repositories do not publish real sprint metadata?**
+  A: Two-week rolling windows on commit activity. We state this upfront; it is a proxy for a real sprint boundary.
+
+### Slide 6 — Feature Engineering
+
+- **Q: Why did you stop at eighteen features and not include more?**
+  A: Every feature must be (1) computable in under a second, (2) readable by a non-machine-learning engineer, (3) stable across repository size. Expanding to one hundred twenty dimensions is future work.
+- **Q: You have no natural-language-processing features. Doesn't that leave signal on the table?**
+  A: Yes. Issue-text sentiment and pull-request-description embeddings are in the future-work list. We wanted a clean, defensible tabular baseline first.
+- **Q: Are the features normalized before training?**
+  A: Rates are already bounded between zero and one. Counts are passed raw to XGBoost (tree-based, no normalization needed) and as formatted strings to the large language model.
+
+### Slide 7 — Rule-Based Labeling
+
+- **Q: Where did the weights in the labeling rule (0.30, 0.20, 0.15) come from?**
+  A: Engineering intuition calibrated against healthy sprints in the `golang/go` anchor repository. We acknowledge this is a proxy, not a learned weighting.
+- **Q: Why was the threshold set at 0.40 specifically and not some other value?**
+  A: It produces a near-fifty-fifty class split on the real data, which keeps F1 meaningful. A lower threshold would make at-risk the majority class.
+- **Q: If the label is generated by a rule that uses the same features the model trains on, doesn't that make the whole project circular?**
+  A: For the tabular models, yes — that is why we call XGBoost a consistency check. The agentic model adds retrieval and large-language-model reasoning on top of those features, so its F1 score is not a tautology.
+
+### Slide 8 — Synthetic Data
+
+- **Q: Why did you use only `golang/go` as the calibration anchor instead of multiple repositories?**
+  A: It has 475 sprints — the largest single-repository sample we have. A multi-anchor generator is future work.
+- **Q: Only eight out of fifteen Kolmogorov-Smirnov tests pass. Is that a good result?**
+  A: It is honest. The passing eight are the features the labeling rule actually uses. The failing seven are code-churn sub-features that do not enter the label, so the impact on training is limited.
+- **Q: Why generate exactly five thousand synthetic sprints and not more or fewer?**
+  A: That was the training budget where adding more stopped changing validation F1. Past that point it was just central-processing-unit cost.
+
+### Slide 9 — Baselines
+
+- **Q: Why did you not include Random Forest or Logistic Regression as baselines?**
+  A: XGBoost dominates tree-based baselines on tabular data; adding Random Forest or Logistic Regression would produce the same saturation story. We kept the table short.
+- **Q: Why did you use Llama-3-8B for the zero-shot baseline but qwen3:0.6b for the agentic system?**
+  A: Llama-3-8B is a recognized strong open model — a fair baseline. qwen3:0.6b is what actually fits on the laptop. The point of the comparison is that the small local model plus structure beats the big model zero-shot.
+
+### Slide 10 — Results
+
+- **Q: The jump from F1 0.60 to F1 0.857 is very large. Are you sure the agentic system is not overfitting?**
+  A: The agentic system has no training — no fine-tuning, no gradient updates. So there is nothing to overfit. The lift comes from better data grounding, not from memorization.
+- **Q: The thirty-one-point jump came from a bug fix. Doesn't that mean the model itself is not actually better?**
+  A: Correct, and we say it on the slide. The orchestrator was already competent; the data layer was starving it. The lesson is that pipeline hygiene matters as much as model choice.
+- **Q: Why is the agentic accuracy (0.875) higher than the macro F1 score (0.873)?**
+  A: Class balance in the eight-sprint slice is close to fifty-fifty, and accuracy and macro F1 converge under balanced classes. Expected.
+
+### Slide 11 — Retrieval-Augmented Generation Pipeline
+
+- **Q: Why did you choose to retrieve the top eight similar sprints and not some other number?**
+  A: Empirically, fewer than five retrieved sprints lose context; more than ten bloats the prompt and hurts latency on the local model. Eight is the sweet spot we observed.
+- **Q: Why did you use MiniLM for embeddings and not a larger embedding model?**
+  A: The 384-dimensional MiniLM model runs in under fifty milliseconds per document on a central processing unit. Larger models would push us past the laptop constraint.
+- **Q: How do you know retrieval is actually helping and not just adding cost?**
+  A: Citation parse-rate and uniform-resource-locator grounding. Without retrieval, the large language model invents uniform resource locators. With retrieval, every citation matches a real GitHub artifact in the store.
+
+### Slide 12 — Agentic Pipeline
+
+- **Q: Why did you use LangGraph instead of plain Python functions for orchestration?**
+  A: State accumulation (risks and recommendations append across agents) plus the directed-acyclic-graph structure made LangGraph cleaner than hand-rolled orchestration. It also gives us free visualization.
+- **Q: What happens if the large language model returns invalid JavaScript Object Notation?**
+  A: Two retry attempts, then the rule-based fallback fires. The pipeline never errors out.
+- **Q: Four large-language-model agents means four times the latency. Why not use one big prompt instead?**
+  A: On a 0.6-billion-parameter model, one big prompt produces incoherent output. Splitting the work keeps each prompt short enough for the small model to handle reliably.
+
+### Slide 13 — Live Demo Output
+
+- **Q: Twelve and a half seconds per prediction is slow. Would anyone actually use this?**
+  A: Sprint analysis runs once per day or once per sprint, not per request. Twelve seconds is fine for that cadence. A paid application-programming interface would be two seconds but ship your code off-device.
+- **Q: What happens if retrieval returns nothing relevant for a query sprint?**
+  A: The large-language-model agents get empty context and produce a weaker explanation, but the rule-based risk list still fires. The output contract never breaks.
+- **Q: Are the citations verified against the actual pull request content, or just present in the output?**
+  A: Present and uniform-resource-locator-valid. We do not yet verify that the cited pull request actually supports the recommendation — that is the human trust study in future work.
+
+### Slide 14 — Limitations & Future Work
+
+- **Q: What is the single biggest thing you would fix first if you had more time?**
+  A: Replace the rule-based label with observed missed-milestone outcomes. It unblocks every F1 claim in the deck.
+- **Q: How long would it take to collect harder labels based on observed milestone outcomes?**
+  A: One semester of data collection plus one week to re-run all baselines. The infrastructure is already in place.
+- **Q: Why is the Low-Rank Adaptation fine-tuning agent still a stub?**
+  A: Scope. Per-organization fine-tuning needs multiple organizations' data; we focused on a single, general model for the deliverable.
+
+### Slide 15 — Question-and-Answer
+
+- **Q: What is the strongest single contribution of this project?**
+  A: An end-to-end, laptop-runnable, cited-explanation pipeline. The numbers are honest; the architecture is the result.
+- **Q: What advice would you give another team starting a similar project from scratch?**
+  A: Fix your data pipeline before you tune your model. Our thirty-one-point jump was a two-line fix.
+
+### Slide 16 — References
+
+- **Q: Why did you select these specific references and not others?**
+  A: Direct lineage to our design — Lewis 2020 for retrieval-augmented generation, Hu 2021 for Low-Rank Adaptation, Bird 2009 for the socio-technical framing, Choetkiertikul 2018 for the delay-prediction baseline.
+
+---
+
+## Appendix F — Deep-Dive Questions (likely from the professor)
+
+These are the questions we expect to get pressed on the hardest. Answers are longer because the professor will want detail, not a one-liner.
+
+### F.1 — How is the F1 score actually calculated?
+
+**Q: Walk me through exactly how F1 was computed in this project.**
+
+A: F1 is the harmonic mean of precision and recall on the positive class (at-risk). For every sprint in the frozen test set we have a true label and a predicted label. From those two we count four values:
+
+- True Positives (TP) — predicted at-risk, actually at-risk.
+- False Positives (FP) — predicted at-risk, actually healthy.
+- False Negatives (FN) — predicted healthy, actually at-risk.
+- True Negatives (TN) — predicted healthy, actually healthy.
+
+Then:
+
+$$
+\text{Precision} = \frac{TP}{TP + FP}, \quad \text{Recall} = \frac{TP}{TP + FN}, \quad F_1 = \frac{2 \cdot \text{Precision} \cdot \text{Recall}}{\text{Precision} + \text{Recall}}
+$$
+
+We report two flavours. **F1 (at-risk)** is the formula above on the at-risk class only — that is our headline number because missing an at-risk sprint is more costly than a false alarm. **F1 (macro)** computes F1 separately for each class (healthy and at-risk) and averages them with equal weight — it guards against a model that wins by predicting only the majority class. We use scikit-learn's `f1_score(y_true, y_pred, average='binary')` and `average='macro'` under the hood, so the numbers are reproducible by anyone loading our test predictions.
+
+### F.2 — Why does XGBoost have perfect F1 but cannot explain anything?
+
+**Q: Your XGBoost models report F1 near 1.00 but you say the agentic system with F1 of 0.857 is better. That sounds backwards. Can you explain?**
+
+A: Yes, and this is the single most important caveat in the deck. The explanation has three parts.
+
+1. **The XGBoost score is a consistency check, not a generalisation claim.** Our label is produced by a deterministic rule over the eighteen features (Slide 7). XGBoost is a strong tabular model that can learn almost any rule over its inputs, so it rediscovers our rule and scores near one. That only proves the features encode the label — something we already knew by construction. It does not prove the model would generalise to a harder label like real missed deadlines.
+2. **F1 measures classification quality, not explanation quality.** F1 only looks at "is the label right?" It says nothing about why the model said what it said, whether the reasoning is trustworthy, or whether a human could act on the output. XGBoost can hand you a binary yes-or-no with perfect accuracy on this dataset, but it cannot tell you *which pull request is stuck*, *which commit broke integration*, or *which past sprint looked similar*. Those outputs are what make the system useful to a PM, and they are only produced by the agentic system.
+3. **The research question is explainability under cold-start, not accuracy on a rule-based label.** Research Question 1 is about whether retrieval-grounded citations beat hallucinated ones. Research Question 4 is about whether a multi-agent decomposition produces better structured output (risks, recommendations, citations) than a single prompt. Neither question is answered by F1 alone. XGBoost cannot even be entered into those comparisons because it does not produce an explanation.
+
+So the XGBoost rows stay in the baseline table because (a) the proposal committed to them and (b) the B2-vs-B3 difference measures whether synthetic data helps (Research Question 3). The agentic F1 of 0.857 is lower than the XGBoost number on purpose: the agentic system is solving a strictly harder problem (classify **plus** explain **plus** cite real evidence), while XGBoost is solving only the easy half.
+
+### F.3 — What is a Kolmogorov-Smirnov test and how does it work?
+
+**Q: You said eight out of fifteen Kolmogorov-Smirnov tests passed. What is that test actually doing?**
+
+A: The two-sample Kolmogorov-Smirnov test checks whether two samples come from the same underlying distribution without assuming what that distribution looks like (non-parametric). Here is how it works:
+
+1. For each feature (say, `pr_merge_rate`) we have two samples — one from the real anchor repository and one from the synthetic generator.
+2. For each sample, compute the empirical cumulative distribution function (ECDF) — a step function that, at any value `x`, reports the fraction of observations less than or equal to `x`.
+3. The Kolmogorov-Smirnov statistic `D` is the maximum vertical distance between the two ECDFs:
+
+$$D = \sup_x \bigl| F_{\text{real}}(x) - F_{\text{synthetic}}(x) \bigr|$$
+
+4. Under the null hypothesis that both samples come from the same distribution, `D` follows a known distribution that depends only on the sample sizes. The test converts `D` into a p-value.
+5. We "pass" a feature if the p-value is greater than 0.05, meaning we cannot reject the null hypothesis — the two samples are statistically indistinguishable at the 5 percent significance level.
+
+The reason we use Kolmogorov-Smirnov instead of a simpler test (like comparing means) is that two distributions can share the same mean but differ wildly in shape. Kolmogorov-Smirnov catches differences in the tails, the spread, and the shape — not just the centre. In our case, eight of fifteen features pass, seven fail; the seven failures are code-churn sub-features (lines added, lines deleted, files changed) where our generator is too narrow compared to real repositories. We report this honestly because hiding it would be the first thing a statistics-literate reviewer would find.
+
+### F.4 — How does Low-Rank Adaptation work and how do you use it?
+
+**Q: You mention Low-Rank Adaptation in the deck. Explain how it works and what your adapter actually does.**
+
+A: Low-Rank Adaptation (LoRA) is a parameter-efficient fine-tuning technique. The idea is that you can adapt a large pretrained model to a new task by training only a tiny number of extra parameters, instead of updating the billions of weights inside the base model.
+
+**How it works (mathematically).** Inside a transformer, most of the compute happens in linear layers of the form $y = W x$, where $W$ is a large weight matrix (for example, 4096 by 4096). Full fine-tuning would update every entry of $W$. LoRA freezes $W$ completely and adds a low-rank update:
+
+$$y = W x + \Delta W x, \qquad \Delta W = B A$$
+
+where $A$ is a small matrix of shape $r \times d$ and $B$ is a small matrix of shape $d \times r$, with rank $r$ much smaller than $d$ (typically $r = 8$ or $r = 16$, while $d$ is in the thousands). Only $A$ and $B$ are trained. The product $B A$ has the same shape as $W$, but because it is forced to be rank-$r$, it contains orders of magnitude fewer parameters. After training you can either keep the adapter separate (swap it in at inference) or merge it back into $W$ for deployment.
+
+**Why it matters for this project.** A startup with its own private repository has a different vocabulary, different code-review style, different cadence. A general model does not know that. Full fine-tuning would require gigabytes of disk per customer, which is impossible. Low-Rank Adaptation lets each customer have a small adapter (a few megabytes) that captures their team's drift without duplicating the base model.
+
+**What our adapter actually does today.** Honestly, it is a stub. We wrote the agent interface and the placeholder training loop, but we have not fine-tuned on per-organisation data because we do not have multiple organisations' sprint histories in hand for this semester. The Low-Rank Adaptation component is listed in the deck to show architectural readiness — the adapter slot exists in the pipeline and can be populated once we have paying customers or research partners contributing data. Shipping a real Low-Rank Adaptation fine-tune is the fifth future-work item on Slide 14.
+
+### F.5 — Follow-up: why not just use the big F1 score from XGBoost as your headline?
+
+**Q: If XGBoost already hits F1 near 1.00, why not just deploy that and skip the whole agentic pipeline?**
+
+A: Three reasons, each of which the professor can verify from the deck.
+
+1. **The XGBoost score is an artefact of the label, not evidence of a good product.** The moment you swap the rule-based label for observed missed deadlines, XGBoost's perfect score will collapse because the features no longer fully encode the target. The agentic system does not depend on the label being a clean rule — it reasons over retrieved evidence, so it degrades gracefully.
+2. **XGBoost produces no usable output for a human.** A PM does not get "yes or no" from our system; they get a health score, a ranked risk list, a ranked recommendation list, and clickable citations to real pull requests. That output contract is what makes the system usable. XGBoost returns a single bit.
+3. **The product promise is privacy and cold-start.** XGBoost on real data needs training data. A brand-new startup repository has zero training data. The agentic system handles cold-start because retrieval can pull similar public repositories for context — XGBoost cannot do that.
+
+The honest framing is: XGBoost is our consistency check that the features are informative. The agentic system is the actual research deliverable.
+
+---
+
 *End of deck.* 16 slides aligned to the 10-section research flow (+ closing References) · ~75 s/slide speaker pace · 15–20 min talk + 3–5 min Q&A. Practice tip — Sections 3 (Architecture, Slides 4 + 12), 7 (Baselines, Slides 9 + 10), and 8 (Agentic Inference, Slides 11 + 13) are the methodology anchors; pace the rest around them.
