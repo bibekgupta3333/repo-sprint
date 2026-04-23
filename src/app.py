@@ -76,6 +76,91 @@ def _sanitize_result_payload(result_json: dict[str, Any]) -> dict[str, Any]:
     return guardrail_result_payload(result_json)
 
 
+def _commit_author_key(commit: dict[str, Any]) -> str:
+    """Return a hashable author identifier for a commit.
+
+    Commits in the wild carry `author` as either a string ("alice"),
+    a dict ({"name": "...", "email": "..."}), or a GitHub-style
+    {"login": "..."}.  Handle all three plus `author_login` / `user`
+    fallbacks.
+    """
+    for key in ("author", "author_login", "user", "committer"):
+        val = commit.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+        if isinstance(val, dict):
+            for sub in ("login", "name", "email"):
+                if isinstance(val.get(sub), str) and val[sub].strip():
+                    return val[sub].strip()
+    return ""
+
+
+def _seed_features_from_sprint(sprint: dict[str, Any]) -> dict[str, Any]:
+    """Derive the activity/team/code/temporal feature buckets that
+    `sprint_analyzer_node` reads, directly from a user-supplied sprint payload.
+
+    Non-local repos skip the data-collector fetch, so without this seeding
+    `state.features["activity"]` would stay empty and every sprint would score
+    health ~= 34 (critical).  See notebooks/final_experiment.ipynb cell 15.
+    """
+    issues = sprint.get("issues", []) or []
+    prs = sprint.get("pull_requests", sprint.get("prs", [])) or []
+    commits = sprint.get("commits", []) or []
+
+    def _state(item, default="open"):
+        if isinstance(item, dict):
+            return (item.get("state") or default).lower()
+        return default
+
+    total_issues = len(issues)
+    closed_issues = sum(1 for i in issues if _state(i) == "closed")
+    total_prs = len(prs)
+    merged_prs = sum(
+        1 for p in prs
+        if isinstance(p, dict) and (
+            p.get("merged") is True
+            or p.get("merged_at")
+            or _state(p) in ("merged", "closed")
+        )
+    )
+
+    # Sprint length (days) from milestone dates; default to 14.
+    duration_days = 14.0
+    start = sprint.get("start_date")
+    end = sprint.get("end_date")
+    try:
+        if start and end:
+            s = datetime.fromisoformat(str(start).replace("Z", "+00:00"))
+            e = datetime.fromisoformat(str(end).replace("Z", "+00:00"))
+            duration_days = max(1.0, (e - s).total_seconds() / 86400.0)
+    except Exception:
+        pass
+
+    unique_authors = len({
+        _commit_author_key(c) for c in commits if isinstance(c, dict)
+    } - {""})
+
+    resolution_rate = closed_issues / total_issues if total_issues else 0.0
+    merge_rate      = merged_prs  / total_prs    if total_prs    else 0.0
+    commit_freq     = len(commits) / duration_days
+
+    return {
+        "activity": {
+            "issue_resolution_rate": float(resolution_rate),
+            "pr_merge_rate":         float(merge_rate),
+            "commit_frequency":      float(commit_freq),
+            "stalled_issues":        float(total_issues - closed_issues),
+            "unreviewed_prs":        float(total_prs - merged_prs),
+        },
+        "code": {"code_concentration": 0.0},
+        "team": {
+            "author_participation": min(1.0, unique_authors / 10.0),
+            "unique_authors": unique_authors,
+        },
+        "temporal": {"sprint_duration_days": duration_days},
+    }
+
+
 def _state_to_result_json(result_state: OrchestratorState) -> dict[str, Any]:
     result_dict = result_state.dict()
 
@@ -948,6 +1033,11 @@ async def analyze_sprint(request: Request):
                 github_issues=issues,
                 github_prs=prs,
                 commits=commits,
+                features=_seed_features_from_sprint({
+                    **sprint,
+                    "start_date": start_date,
+                    "end_date": end_date,
+                }),
                 milestone_data={
                     "created_at": start_date,
                     "due_on": end_date,
@@ -1681,9 +1771,15 @@ function renderResults(r){
   const rm=r.run_metrics||{};
   const cq=rm.citation_quality||{};
   const counts=rm.counts||{};
+  const f1Warnings=rm.f1_warnings||[];
+  const f1Sub=f1Warnings.length?'Not computable for this input':'Target ≥0.85';
+  const f1Val=(rm.f1_score!==null&&rm.f1_score!==undefined)?rm.f1_score.toFixed(3):'N/A';
+  const f1Title=f1Warnings.length?` title="${f1Warnings.join(' • ').replace(/"/g,'&quot;')}"`:'';
+  const warnBanner=f1Warnings.length?`<div class="f1-warning" style="grid-column:1/-1;margin-bottom:.5rem;padding:.6rem .9rem;background:#fff7ed;border:1px solid #fed7aa;border-radius:.5rem;color:#9a3412;font-size:.85rem"><strong>⚠ F1 not available:</strong> ${f1Warnings.join(' ')}</div>`:'';
   document.getElementById('run-metrics').innerHTML=`
+    ${warnBanner}
     <div class="metric"><div class="m-label">Latency</div><div class="m-val">${(rm.latency_seconds??0).toFixed(2)}s</div><div class="m-sub">End-to-end pipeline</div></div>
-    <div class="metric"><div class="m-label">F1 Score</div><div class="m-val">${rm.f1_score!==null&&rm.f1_score!==undefined?rm.f1_score.toFixed(3):'—'}</div><div class="m-sub">Target ≥0.85</div></div>
+    <div class="metric"${f1Title}><div class="m-label">F1 Score</div><div class="m-val">${f1Val}</div><div class="m-sub">${f1Sub}</div></div>
     <div class="metric"><div class="m-label">Parse Success</div><div class="m-val">${rm.parse_success_rate!==null?(rm.parse_success_rate*100).toFixed(0)+'%':'—'}</div><div class="m-sub">LLM output quality</div></div>
     <div class="metric"><div class="m-label">Fallback Rate</div><div class="m-val">${rm.fallback_rate!==null?(rm.fallback_rate*100).toFixed(0)+'%':'—'}</div><div class="m-sub">Deterministic fallback</div></div>
     <div class="metric"><div class="m-label">Citation Quality</div><div class="m-val">${(cq.score??0).toFixed(2)}</div><div class="m-sub">${cq.non_empty_citations??0}/${cq.total_citations??0} citations</div></div>

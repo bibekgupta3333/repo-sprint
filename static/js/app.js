@@ -2144,9 +2144,17 @@ function renderResults(r) {
   const rm = r.run_metrics || {};
   const cq = rm.citation_quality || {};
   const counts = rm.counts || {};
+  const f1Warnings = rm.f1_warnings || [];
+  const f1Sub = f1Warnings.length ? 'Not computable for this input' : 'Target ≥0.85';
+  const f1Val = (rm.f1_score != null) ? rm.f1_score.toFixed(3) : 'N/A';
+  const f1Title = f1Warnings.length ? ` title="${f1Warnings.join(' • ').replace(/"/g,'&quot;')}"` : '';
+  const warnBanner = f1Warnings.length
+    ? `<div class="f1-warning" style="grid-column:1/-1;margin-bottom:.5rem;padding:.6rem .9rem;background:#fff7ed;border:1px solid #fed7aa;border-radius:.5rem;color:#9a3412;font-size:.85rem"><strong>⚠ F1 not available:</strong> ${f1Warnings.join(' ')}</div>`
+    : '';
   document.getElementById('run-metrics').innerHTML = `
+    ${warnBanner}
     <div class="metric-tile"><div class="m-label">Latency</div><div class="m-val">${(rm.latency_seconds ?? 0).toFixed(2)}s</div><div class="m-sub">End-to-end pipeline</div></div>
-    <div class="metric-tile"><div class="m-label">F1 Score</div><div class="m-val">${rm.f1_score != null ? rm.f1_score.toFixed(3) : '—'}</div><div class="m-sub">Target ≥0.85</div></div>
+    <div class="metric-tile"${f1Title}><div class="m-label">F1 Score</div><div class="m-val">${f1Val}</div><div class="m-sub">${f1Sub}</div></div>
     <div class="metric-tile"><div class="m-label">Parse Success</div><div class="m-val">${rm.parse_success_rate != null ? (rm.parse_success_rate * 100).toFixed(0) + '%' : '—'}</div><div class="m-sub">LLM output quality</div></div>
     <div class="metric-tile"><div class="m-label">Fallback Rate</div><div class="m-val">${rm.fallback_rate != null ? (rm.fallback_rate * 100).toFixed(0) + '%' : '—'}</div><div class="m-sub">Deterministic fallback</div></div>
     <div class="metric-tile"><div class="m-label">Citation Quality</div><div class="m-val">${(cq.score ?? 0).toFixed(2)}</div><div class="m-sub">${cq.non_empty_citations ?? 0}/${cq.total_citations ?? 0} citations</div></div>
