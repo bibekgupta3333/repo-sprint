@@ -1,17 +1,17 @@
-# Sprint Intelligence — Final ML Project Presentation
+# Intelligent Sprint Analysis Using Agentic System for Startup Projects — Research Presentation
 
 **Course:** Machine Learning · Florida Polytechnic University · Spring 2026
 **Team:** Bibek Gupta (Lead) · Saarupya Sunkara · Siwani Sah · Deepthi Reddy Chelladi
-**Deliverable:** 11-agent LangGraph pipeline · ChromaDB RAG · local Ollama
+**Deliverable:** 11-agent LangGraph pipeline · dense-vector retrieval (ChromaDB) · local LLM inference (Ollama)
 
-> 22 slides for a 20-minute talk (~50 s/slide avg + 5 min Q&A). Every claim is tied to a file in this repo. **Preliminary numbers** are clearly marked; the fixed real-only test set is frozen for the final report.
+> 16 slides for a 15–20 min talk + 3–5 min Q&A. Ten-section flow: **Problem → Research Question → Architecture → Data → Synthetic Data → Features → Baselines → Agentic Inference → Limitations & Future Work → Q&A** + a closing **References** slide.
 
 ---
 
 ## Slide 1 — Title
 
-# Sprint Intelligence
-### Predicting Sprint Risk with a Local, Retrieval-Augmented Multi-Agent System
+# Intelligent Sprint Analysis Using Agentic System for Startup Projects
+### A Multi-Stage ML Pipeline: Supervised Classification + Dense Retrieval + Local LLM Reasoning
 
 | | |
 |---|---|
@@ -19,116 +19,99 @@
 | **Institution** | Florida Polytechnic University · Computer Science |
 | **Date** | April 2026 |
 | **ML task** | Binary classification — `is_at_risk ∈ {0, 1}` per sprint |
-| **Dataset** | 17 repos · 344 real sprints + 5 000 synthetic · 18 features |
-| **Best model today** | Agentic LangGraph orchestrator (F1 = 0.857) |
+| **Dataset** | 17 repos · 1 541 real sprints + 5 000 synthetic · 18 features |
+| **Headline result** | Agentic LangGraph orchestrator · F1 = 0.857 on the held-out real-sprint slice |
 
 **Short version.** We built a local, explainable system that predicts sprint risk from GitHub activity and reaches F1 = 0.857 on held-out real sprints.
 
-**Long version.** *Sprint Intelligence* is framed as a supervised binary-classification problem on top of a real engineering pain point — predicting whether a two-week sprint is about to miss its milestone — but we deliberately chose a harder scope than vanilla classification. Every prediction must be accompanied by a **cited natural-language explanation** grounded in real issues, pull requests, and commits; the entire stack must run on a laptop with no paid APIs; and cold-start repos with zero history must still produce usable output. Those three constraints shape every downstream decision (label rule, synthetic data, RAG, four-LLM agentic pipeline). The headline number — AG F1 = 0.857 on a real-only test slice — is presented alongside operational metrics (parse-success, citation quality, latency) because a classification score alone does not capture whether an explanation-first system is usable in practice.
+**Long version.** *Intelligent Sprint Analysis for Startup Projects* is framed as a supervised binary-classification problem on top of a real engineering pain point — predicting whether a two-week sprint is about to miss its milestone — but we deliberately chose a harder scope than vanilla classification. Every prediction must be accompanied by a **cited natural-language explanation** grounded in real issues, pull requests, and commits; the entire stack must run on a laptop with no paid APIs; and **cold-start repos with zero history must still produce usable output** (critical for startups, where no team has years of sprint data on hand). Those three constraints shape every downstream decision (label rule, synthetic data, RAG, four-LLM agentic pipeline). The headline number — AG F1 = 0.857 on a real-only test slice — is presented alongside operational metrics (parse-success, citation quality, latency) because a classification score alone does not capture whether an explanation-first system is usable in practice.
 
-**What I'll say (30 s).** Good morning. Our final ML project is **Sprint Intelligence** — a system that predicts whether an ongoing software sprint is at risk of missing its goal, using only features that can be computed from a GitHub repository. Over the next twenty minutes I'll walk through the problem, the data, the features, four baseline models, our results, the ablations we ran, and what we'd do next.
-
----
-
-## Slide 2 — Problem Statement
-
-### The ML Task
-
-> **Given** raw GitHub activity (issues, pull requests, commits) for a 14-day sprint window across one or more repositories,
-> **predict** a binary label `is_at_risk` indicating whether the sprint will miss its planned milestone,
-> **and** surface natural-language explanations citing the evidence that drove the prediction.
-
-**Why this task matters.**
-
-| Stakeholder | Pain today |
-|---|---|
-| Startup engineers | No PM, 6–10 h/week manual tracking |
-| Leadership | Integration breaks surface late, 34 % of failures cross-repo |
-| Researchers | Enterprise PM tools need 6–12 months history & cost $500–$2 k / mo |
-
-**Why it's a hard ML problem.**
-
-1. **Cold-start** — new repos have no labeled history.
-2. **Label sparsity** — few "missed" milestones per repo.
-3. **Multi-modal signal** — numeric activity + text + temporal dynamics.
-4. **Trust requirement** — a prediction without a cited reason won't get adopted.
-
-**Short version.** Real pain (hours lost to tracking, late integration breaks), clean ML framing (binary classification), but with an explainability gate on top.
-
-**Long version.** The task is *hard* for four specific ML reasons, not just one. First, **cold-start** — a brand-new repo has no labeled history, so any model that only works after 6–12 months of data (like most enterprise PM tools) is disqualified. Second, **label sparsity** — even mature repos only miss a handful of milestones per year, so the positive class is tiny and expensive to collect at scale. Third, **multi-modal signal** — we have numeric activity counts, free-text issue bodies, and temporal dynamics (gaps, bursts, decays); a single model family rarely handles all three well. Fourth, **trust requirement** — a prediction with no cited reason is ignored by humans, so the usual F1-maximization objective is necessary but not sufficient. These four constraints are why we end up with a hybrid system (rule + LLM + RAG) instead of one big classifier.
-
-**What I'll say (45 s).** Sprint risk is a real, concrete pain point that maps cleanly onto a supervised ML problem. We frame it as binary classification so we can reuse well-understood evaluation — F1, precision, recall — but we add an explainability requirement on top because a prediction without a reason is useless to a human PM.
+**What I'll say (30 s).** Good morning. Our final ML project is **Intelligent Sprint Analysis Using an Agentic System for Startup Projects** — a multi-stage ML pipeline that predicts whether a software sprint is at risk of missing its goal, using only features computable from a GitHub repository, and designed specifically for the cold-start conditions startup teams face. Over the next twenty minutes I'll walk through the problem, the data, the learned representations, the classifier baselines, our results, and what we'd do next.
 
 ---
 
-## Slide 3 — ML Problem Formulation
+## Slide 2 — Problem & Motivation  ·  *Section 1 · 1 min*
 
-```mermaid
-%%{init: {'theme':'base','themeVariables':{'fontSize':'14px'}}}%%
-flowchart LR
-    raw[("Raw events<br/>GitHub REST")] --> seg["Sprint segmentation<br/>14-day window<br/>by creation date"]
-    seg --> X["Feature vector<br/>x ∈ ℝ^18"]
-    seg --> Y["Label y ∈ {0, 1}<br/>RiskLabeler rules"]
-    X --> M["Model f: ℝ^18 → {0, 1}"]
-    Y -.-> M
-    M --> yhat["ŷ, p(at-risk)"]
-    yhat --> EV["F1 · Precision · Recall · AUC"]
-    style X fill:#e3f2fd,stroke:#05a
-    style Y fill:#fce4ec,stroke:#b36
-    style M fill:#d4edda,stroke:#185,stroke-width:2px
-    style EV fill:#fff8e1,stroke:#a80
-```
+### Why startups need this
 
-| | |
-|---|---|
-| **Input** $x$ | 18 numeric features per sprint |
-| **Output** $y$ | $\{0\text{=healthy}, 1\text{=at-risk}\}$ |
-| **Hypothesis space** | Rules, XGBoost, LLM zero-shot, agentic (LLM + RAG) |
-| **Loss** | Log-loss (XGB) / cross-entropy proxy via prompt |
-| **Metric** | F1 (primary) · precision / recall / AUC / accuracy |
+| Stakeholder | Pain today | Cost |
+|---|---|---|
+| Startup engineers | No PM, 6–10 h/week manual sprint tracking | Lost engineering time |
+| Engineering leads | Integration breaks surface late — **34 % of failures cross-repo** | Missed releases |
+| Founders | Enterprise PM tools demand 6–12 mo of history & cost **$500–$2 k / month** | Locked out of tooling |
 
-**Label leakage guard.** Sprints are segmented by **entity creation date**, not close date — using close date would let the future leak into the label.
+**Existing tools fall short for small teams.**
 
-**Short version.** $f: \mathbb{R}^{18} \to \{0,1\}$, optimised for F1, with a strict creation-date segmentation to prevent leakage.
+- *Jira Advanced Roadmaps* — priced for enterprise (per-seat license + minimum tier).
+- *Linear Insights / Shortcut Analytics* — require months of usage history before signal stabilises.
+- *Cloud LLM dashboards* — ship private repo data off-device; many startups can't legally do this.
 
-**Long version.** Two methodological choices deserve emphasis here because they are the ones most commonly attacked in Q&A. (1) **Why F1 and not accuracy** — on a near-balanced real-only test set accuracy *looks* fine but hides asymmetric errors; F1 (positive class) forces us to optimise for the class whose misclassification actually costs a human a missed deadline. (2) **Why segmentation uses creation date** — a naive pipeline groups events by their close or merge date, but that date is itself a function of the outcome we're trying to predict (a resolved issue was, by definition, not blocking). Using creation date means the feature vector only sees information that *would have been available* when the sprint started, which is the minimum bar for an honest predictive setup. A third subtle point: our hypothesis space deliberately spans four very different families (rules, tabular ML, LLM prompt, agentic+RAG) so that no single architectural bias dominates the answer.
+### The opening: *what gets a small team to actionable sprint health on day one, with no paid APIs?*
 
-**What I'll say (30 s).** Formally, we learn a function from an eighteen-dimensional feature vector to a binary label. We pick F1 as the primary metric because both classes matter — missed risks hurt users, but false alarms erode trust.
+**Short version.** Startups have the same sprint-health problem as enterprises but none of the budget, history, or tolerance for cloud data egress.
+
+**Long version.** This slide names the gap the project is built to close. A two-person startup faces the *same* failure modes as a 200-engineer org — stalled issues, blocked PRs, integration breaks across services — but the tooling market is structured around enterprise customers. Jira Advanced Roadmaps requires an Atlassian Cloud Premium subscription (priced per-seat with a minimum tier), Linear's analytics surface needs months of usage data before its signal stabilises, and any cloud-LLM-based PM tool ships private repo data off-device, which is a non-starter for many seed-stage teams under NDA. The real opening here is *not* "build a better Jira"; it's "build the smallest possible thing that gives a brand-new repo on day one a trustworthy, locally-hosted sprint-health prediction with cited reasoning." Every architectural decision in this deck — local LLM, RAG over GitHub events, persona-calibrated synthetic warm-start, deterministic agent fallbacks — follows from that opening.
+
+**What I'll say (60 s).** Startups have a sprint-tracking problem and no realistic tools to solve it. Jira's advanced roadmaps are priced for the enterprise. Linear's analytics need months of history before they're useful. Any cloud-LLM dashboard ships your private repo data off-device, which a lot of seed-stage teams legally can't do. Six-to-ten hours a week per engineer disappear into manual tracking, and a third of the failures we see come from cross-repo integration breaks that get caught too late. That's the gap our project is built to close.
 
 ---
 
-## Slide 4 — System Overview (where ML fits)
+## Slide 3 — Research Question  ·  *Section 2 · 1 min*
+
+> **Can a local, multi-agent LLM system with RAG produce trustworthy, explainable sprint-health predictions on small-team repositories — including cold-start projects with no historical data?**
+
+### Operational decomposition
+
+| Sub-question | Hypothesis | How we test it |
+|---|---|---|
+| **RQ1.** Does retrieval improve grounded explanation quality vs. a vanilla LLM? | RAG-grounded answers cite real artefacts; vanilla LLM hallucinates URLs. | Citation parse-rate + manual citation audit (Section 8). |
+| **RQ2.** Can a $\le$1 B local LLM hit acceptable F1 with a deterministic fallback safety net? | A small local model + structured agents matches a single big LLM on F1 and beats it on cost & privacy. | Baselines vs. agentic head-to-head on the frozen test set (Section 7). |
+| **RQ3.** Does persona-calibrated synthetic data unblock cold-start without polluting the real-data signal? | Train-only synthetic raises retrieval coverage on new repos but leaves real-only F1 unchanged. | Train-on-synth / test-on-real comparison (Section 5). |
+| **RQ4.** Does a multi-agent decomposition outperform a single-prompt LLM on multi-faceted output (risk + recommendation + explanation)? | Specialised agents reduce prompt complexity → better JSON parse-rate + lower latency variance. | Agentic-vs-zero-shot comparison (Section 7). |
+| **RQ5.** Does the system stay laptop-runnable end-to-end? | Local Docker stack ≤ 16 GB RAM, p50 latency ≤ 60 s. | Operational metrics on the demo run (Section 8). |
+
+**Scope guardrail.** We deliberately do *not* claim to predict real missed milestones — our label is rule-based (Section 6). The research question is about *trustworthy explanation under cold-start*, not ground-truth milestone prediction (which is scoped as future work).
+
+**Short version.** Five sub-questions — RAG vs. vanilla LLM, small-local vs. big-cloud LLM, synthetic data for cold-start, multi-agent vs. single-prompt, and laptop-runnability — each tied to a concrete measurement.
+
+**Long version.** Framing the project around a single research question forces us to be specific about what counts as success. We split the headline question into five sub-hypotheses precisely so that no single failure (e.g. mediocre F1 on the rule label) can sink the whole research claim, and so that each sub-question is testable against a concrete measurement. RQ1 lives or dies by the retrieval-grounded citation rate, not by classification F1. RQ2 is a head-to-head comparison on a fixed test set. RQ3 measures train-on-synthetic / test-on-real impact on real-only F1. RQ4 is the agentic-vs-zero-shot comparison, where the benefit shows up as JSON parse-rate and latency variance, not raw F1. RQ5 is just operational — does the whole stack run on a 16 GB laptop. The scope guardrail at the bottom is critical: we are *not* claiming to predict real missed milestones, because our label is rule-based; that scope sits in future work.
+
+**What I'll say (45 s).** The research question, in one line: can a local, multi-agent LLM system with RAG produce trustworthy, explainable sprint-health predictions on small-team repos including cold-start projects? We split it into five sub-hypotheses, each tied to a specific measurement. The scope guardrail — we are *not* claiming to predict real missed milestones, because our label is rule-based. That sits in future work.
+
+---
+
+## Slide 4 — System Overview (end-to-end ML pipeline)  ·  *Section 3 · part 1 of 2*
 
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{'fontSize':'13px'}}}%%
 flowchart LR
-    subgraph ingest["📥 Data ingest · no ML"]
+    subgraph ingest["📥 Stage 1 · Data curation"]
         GH[("GitHub REST")]
         LG[("Local Git clone")]
     end
-    subgraph prep["🧮 Feature engineering · no ML"]
+    subgraph prep["🧮 Stage 2 · Representation learning"]
         DC[DataCollector]
-        FE[FeatureEngineer<br/>18 numeric feats]
-        SG["SyntheticGen<br/>persona-calibrated"]
+        FE[FeatureEngineer<br/>18-D ℝ vector]
+        SG["Generative augmentation<br/>persona-calibrated<br/>KS-validated"]
+        EMB["Dense encoder<br/>MiniLM 384-D"]
     end
-    subgraph ml["🤖 ML / models"]
-        RULE[Rule-based<br/>oracle floor]
-        XGB[XGBoost<br/>tabular]
-        LLM0[Single-LLM<br/>zero-shot]
-        AGENT[Agentic<br/>LLM + RAG]
+    subgraph ml["🤖 Stage 3 · Learned classifiers"]
+        RULE[Rule baseline<br/>floor]
+        LLM0[Zero-shot LLM<br/>prompt classifier]
+        AGENT[Agentic LLM<br/>+ RAG + tools]
     end
-    subgraph rag["🔍 Retrieval"]
+    subgraph rag["🔍 Stage 4 · Retrieval index"]
         CDB[("ChromaDB<br/>280 K docs · 384-D")]
     end
-    subgraph out["📤 Evaluation"]
-        EV["F1 · P / R / AUC"]
-        EX["Explanations<br/>+ citations"]
+    subgraph out["📊 Stage 5 · Evaluation"]
+        EV["F1 · macro-F1 · accuracy"]
+        EX["Cited explanations<br/>+ operational metrics"]
     end
     GH --> DC
     LG --> DC
     DC --> FE --> ml
-    FE --> SG -. augment train .-> XGB
-    FE --> CDB
+    FE --> SG -. train-only augmentation .-> ml
+    FE --> EMB --> CDB
     CDB --> AGENT
     ml --> EV
     AGENT --> EX
@@ -138,44 +121,49 @@ flowchart LR
     style out fill:#fff8e1,stroke:#a80
 ```
 
-**Short version.** ML only shows up in the middle stage; ingest and feature engineering are deterministic, which makes the pipeline debuggable end-to-end.
+**Short version.** Five ML stages — curation, representation, classification, retrieval, evaluation — each with its own artefacts and tests. The whole pipeline is ML end-to-end.
 
-**Long version.** The diagram is laid out the way it is on purpose — the ML box is narrow and surrounded by deterministic boxes. That matters because every stage *before* the model (collect, segment, extract features) has an exact unit test you can run and reproduce, and every stage *after* (retrieval, explanation, evaluation) is auditable against recorded JSON artifacts. The only stochastic component is the LLM call, and even that has a deterministic rule-based fallback (Slide 15). This separation is what lets us make strong claims like "the AG 0.67 → 0.857 lift came from one upstream fix" — we can *point* to the exact node where the fix landed (`data_collector_node`) and show the feature vector before and after.
+**Long version.** We deliberately label every stage as part of the ML pipeline because each one is an ML-curriculum topic in its own right: **Stage 1 — data curation** (sampling, deduplication, label integrity under distribution shift); **Stage 2 — representation learning** (hand-engineered feature vector *plus* a learned 384-dim sentence-embedding space from MiniLM plus a persona-calibrated generative augmentation model validated with KS tests); **Stage 3 — learned classifiers** (three hypothesis families compared on a shared evaluation protocol); **Stage 4 — approximate-nearest-neighbour retrieval** (cosine similarity over the learned embedding space, filtered by metadata); **Stage 5 — evaluation** (F1 family plus operational metrics tied to the explainability objective). The point of the five-stage layout is that a failure in *any* stage caps the whole system — for example, our 0.67 → 0.857 result (Slide 10) came from fixing a Stage 1 → Stage 3 plumbing bug where the classifier was receiving an empty feature vector, which is exactly the kind of cross-stage failure this decomposition makes visible.
 
-**What I'll say (40 s).** Feature engineering is pure Python — no ML. The ML layer has four models we'll compare head-to-head. The retrieval layer is what gives the agentic model its explanation power: every prediction is grounded in real commits and pull requests pulled from a vector database.
+**What I'll say (40 s).** The pipeline has five ML stages. Data curation handles sampling and label integrity. Representation learning gives us both a hand-engineered 18-dim feature vector *and* a learned 384-dim sentence-embedding space, plus a persona-calibrated generative augmentation model. Classification compares three hypothesis families. Retrieval runs approximate nearest neighbour over the learned embeddings. Evaluation covers both F1 and the operational metrics that matter for an explainability-first system.
 
 ---
 
-## Slide 5 — Dataset Composition
+## Slide 5 — Dataset Composition  ·  *Section 4 · Data Pipeline*
 
 ```mermaid
 %%{init: {'theme':'base'}}%%
 pie showData
-    title Labeled sprints · 5 040 total
-    "Real sprints (17 repos)" : 344
-    "Synthetic (5 personas)" : 5000
+    title Real dataset · 280 418 entities across 17 repos
+    "Commits" : 112748
+    "PRs" : 86211
+    "Issues" : 79918
+    "Sprints" : 1541
 ```
 
-| Repo (top 5) | Real sprints | Issues + PRs + commits indexed |
-|---|---:|---:|
-| zed-industries/zed | 70 | 83 064 |
-| langgenius/dify | 38 | 39 797 |
-| open-webui/open-webui | 31 | 31 224 |
-| astral-sh/uv | 28 | 27 693 |
-| badges/shields | 19 | 20 322 |
-| … 12 more | 158 | 78 318 |
+| Repo (top 5 by entities) | Sprints | Commits | Issues | PRs |
+|---|---:|---:|---:|---:|
+| zed-industries/zed | 134 | 36 669 | 19 357 | 26 904 |
+| open-webui/open-webui | 66 | 16 005 | 8 081 | 7 072 |
+| langgenius/dify | 76 | 9 837 | 17 221 | 12 663 |
+| astral-sh/uv | 66 | 8 837 | 8 783 | 10 007 |
+| badges/shields | 342 | 8 464 | 2 788 | 8 728 |
+| … 12 more repos | 857 | 32 936 | 23 688 | 20 837 |
+| **Total (17 repos)** | **1 541** | **112 748** | **79 918** | **86 211** |
 
-- **Real:** 17 public GitHub repos · 344 sprints · 280 418 entity documents
-- **Synthetic:** 5 000 sprints via persona-calibrated generator (Slide 7)
-- **Combined:** 5 344 sprints → after sampling adjustments, **5 040 labeled** training pool
-**Short version.** 344 real + 5 000 synthetic = 5 040 labeled sprints, but synthetic lives only in the training set.
+- **Real:** 17 public GitHub repos · **1 541 sprints** · **278 877 entity documents** (commits + issues + PRs)
+- **Synthetic:** 5 000 sprints via persona-calibrated generator (Slide 8)
+- **Combined training pool:** 6 541 labeled sprints · **synthetic lives in train-only**
 
-**Long version.** Three hundred forty-four real sprints is *not enough*. With a 70/15/15 split that leaves roughly 50 real sprints in the test set — fine for a sanity check, catastrophically noisy for distinguishing a good model from a great one. Two options: (a) collect more real data, which would take months and still miss cold-start cases; or (b) augment. We chose (b), but with a hard rule that synthetic data is *training-only* — validation and test are 100 % real. This closes the obvious escape hatch where a model "wins" by memorising synthetic patterns that never appear in the real world. The breadth across 17 repos also matters: if all 344 sprints came from one codebase, any model would overfit to that team's cadence. By spanning seventeen very different communities (a Rust editor, an LLM inference server, a web UI, a package manager, a shields-as-a-service) we force models to learn features that generalise across engineering cultures.
-**What I'll say (45 s).** We have three hundred forty-four real sprints. That's too few to reliably train a model that generalizes. So we augment with five thousand synthetic sprints \u2014 but synthetic data only touches the training set; validation and test stay real-only.
+**Short version.** 1 541 real sprints across 17 repos (~279 K entity documents) plus 5 000 synthetic train-only sprints; labels are produced by a transparent rule (Slide 7).
+
+**Long version.** 1 541 real sprints across 17 very different communities (a Rust editor, an LLM inference server, a web UI, a package manager, a shields-as-a-service, plus twelve more) give us meaningful breadth, but the long tail matters — five repos carry over 60 % of the entity mass, and the smallest four contribute fewer than 10 sprints each. Sprint counts are not proportional to code volume: `shields` has 342 sprints but only 8 K commits (many short cycles), while `zed` has 134 sprints and 36 K commits (fewer, heavier cycles). We augment with 5 000 synthetic sprints, but synthetic is *train-only*, which closes the obvious escape hatch where a model "wins" by memorising generator patterns. Labelling, evaluation, and synthetic-data generation are detailed on the next three slides.
+
+**What I'll say (45 s).** Seventeen open-source repos, 1 541 real sprints, roughly 279 thousand commits-issues-PRs indexed into ChromaDB. The distribution is long-tailed — five repos carry most of the entity mass. On top of that we add 5 000 synthetic sprints, but synthetic only touches training. Labels and the synthetic generator get their own slides next.
 
 ---
 
-## Slide 6 — Feature Engineering (18-dim vector)
+## Slide 6 — Feature Engineering (18-dim vector)  ·  *Section 6 · Feature Engineering · part 1 of 2*
 
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{'fontSize':'13px'}}}%%
@@ -193,17 +181,58 @@ flowchart LR
     style vec fill:#fff8e1,stroke:#a80,stroke-width:2px
 ```
 
-All features are deterministic, computed without ML. They are the exact columns consumed by XGBoost (`NUMERIC_FEATURES` in [notebooks/baseline.ipynb](../notebooks/baseline.ipynb)) and formatted as prompt variables for the LLM baseline (Slide 10).
+All features are **deterministic hand-engineered representations** over the raw event stream — the classical half of the feature side of this project. They are the exact columns consumed by the tabular baselines and are formatted as prompt variables for the zero-shot LLM classifier (Slide 9). The *learned* half of the representation lives in the dense-vector store, where every sprint, commit, PR, and issue is also projected into a 384-dim dense-embedding space (Slide 11).
 
-**Short version.** Eighteen interpretable numeric features across five behavioural buckets — no embeddings, no NLP, no magic.
+**Short version.** Eighteen interpretable hand-engineered features + a 384-dim learned embedding space — classical + deep representations side by side.
 
-**Long version.** The feature set is deliberately *small and boring*, and that is a design choice we want to defend on stage. Every feature is (a) computable from free GitHub data in under a second per sprint, (b) interpretable by a non-ML engineer at a glance, and (c) stable across repo size (we use rates and averages, not absolute counts, for half of them). The five buckets — temporal, activity, code, risk, team — map onto questions a human PM would ask: *Is the team moving? Are they shipping? Is the code changing? Is anything stuck? Who's contributing?* Keeping the vector at 18 dims also means our rule-based label (Slide 8) is inspectable on a single page, which is what makes the whole "XGBoost trivially recovers the rule" caveat honest rather than hand-wavy. Richer features (embeddings of issue text, dependency-graph walks) are explicitly deferred to future work (Slide 20) so the baseline story stays clean.
+**Long version.** The feature set is deliberately *small and boring* on the hand-engineered side, and that is a design choice we want to defend on stage. Every hand-engineered feature is (a) computable from free GitHub data in under a second per sprint, (b) interpretable by a non-ML engineer at a glance, and (c) stable across repo size (we use rates and averages, not absolute counts, for half of them). The five buckets — temporal, activity, code, risk, team — map onto questions a human PM would ask: *Is the team moving? Are they shipping? Is the code changing? Is anything stuck? Who's contributing?* Keeping the hand-engineered vector at 18 dims also means our rule-based label (Slide 7) is inspectable on a single page, which is what makes the whole "a strong tabular model trivially recovers the rule" caveat honest rather than hand-wavy. In parallel, we also project every sprint document into a **384-dim learned embedding** via `sentence-transformers/all-MiniLM-L6-v2`, which is what powers the retrieval layer (Slide 11). The combination — interpretable hand-engineered features for the classifier, learned dense embeddings for similarity and retrieval — is the ML-curriculum version of "classical + deep" used together.
 
 **What I'll say (40 s).** Eighteen numeric features across five behavioral categories. Simple, interpretable, cheap to compute. No NLP, no graph embeddings in this version — those come later.
 
 ---
 
-## Slide 7 — Synthetic Data Generation
+## Slide 7 — Rule-Based Labeling  ·  *Section 6 · part 2 of 2 · Binary `is_at_risk` label*
+
+The label $y = \text{RiskLabeler}(x)$ is a transparent weighted-rule function over the 18-dim feature vector — applied identically to real and synthetic sprints.
+
+```mermaid
+%%{init: {'theme':'base','themeVariables':{'fontSize':'12px'}}}%%
+flowchart LR
+    X[/"Sprint features x"/] --> R1["stalled_issues ≥ 3<br/><b>w = 0.30</b>"]:::risk
+    X --> R2["pr_merge_rate &lt; 0.5<br/><b>w = 0.20</b>"]:::risk
+    X --> R3["issue_resolution_rate &lt; 0.4<br/><b>w = 0.15</b>"]:::risk
+    X --> R4["long_open_issues ≥ 2<br/><b>w = 0.15</b>"]:::risk
+    X --> R5["commit_frequency &lt; 1.0<br/><b>w = 0.20</b>"]:::risk
+    R1 --> S(( Σ w·𝟙 ))
+    R2 --> S
+    R3 --> S
+    R4 --> S
+    R5 --> S
+    S --> T{"score ≥ 0.40 ?"}
+    T -- yes --> AR["y = 1<br/>AT-RISK"]:::bad
+    T -- no --> HL["y = 0<br/>HEALTHY"]:::good
+    classDef risk fill:#fff3e0,stroke:#a60
+    classDef bad  fill:#fce4ec,stroke:#b36,stroke-width:2px
+    classDef good fill:#e8f5e9,stroke:#2a7,stroke-width:2px
+```
+
+$$
+\text{score}(x) = 0.30 \cdot \mathbb{1}[\text{stalled\_issues} \ge 3] + 0.20 \cdot \mathbb{1}[\text{pr\_merge\_rate} < 0.5] + 0.15 \cdot \mathbb{1}[\text{issue\_resolution\_rate} < 0.4] + 0.15 \cdot \mathbb{1}[\text{long\_open\_issues} \ge 2] + 0.20 \cdot \mathbb{1}[\text{commit\_frequency} < 1.0]
+$$
+
+$$y = \mathbb{1}[\text{score}(x) \ge 0.40]$$
+
+> ⚠️ **Caveat, owned up-front.** Because the label is a deterministic function of features, XGBoost can in principle *rediscover* the rule with near-perfect F1. We treat that as a **consistency check** (features encode the label), not a generalization claim. Real validity requires observed milestone outcomes (Future Work).
+
+**Short version.** Five weighted indicators, threshold 0.40 — same function on real + synthetic sprints; fully auditable and intentionally limited.
+
+**Long version.** The labelling function is the most methodologically sensitive part of the project. It buys us label consistency across real and synthetic data without human annotation, and it's auditable by anyone reading this slide. It does *not* buy an unbiased estimator of true missed milestones, which is why any tabular model hitting F1 = 1.00 here is a consistency check rather than a generalisation claim. Replacing this rule with observed milestone outcomes is the single most important item in Future Work (Slide 14), because every downstream metric in this deck is measured against this proxy.
+
+**What I'll say (50 s).** Labels come from a transparent five-indicator rule with threshold zero-point-four-zero. I want to name a methodological risk up front: because the label is a function of features, a strong tabular model can learn the rule exactly and report near-perfect F1 — that's a consistency check, not generalisation. The honest version of the F1-zero-point-eight-five-seven claim depends on the agentic system, which adds retrieval and LLM reasoning on top of the same features.
+
+---
+
+## Slide 8 — Synthetic Data Generation  ·  *Section 5 · Synthetic Data*
 
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{'fontSize':'13px'}}}%%
@@ -225,88 +254,43 @@ flowchart LR
 **Short version.** Persona-weighted generator calibrated to a real anchor repo, validated with a two-sample KS test — 8/15 features pass, rest reported honestly.
 
 **Long version.** Three design details worth pulling out. (1) **Anchor-based calibration** — instead of generating features from a uniform distribution, we fit percentile bands (p25–p75) to a single large real repo (`golang/go`, 475 sprints) and sample inside them. That prevents the generator from inventing impossible combinations (e.g. "1 000 merged PRs in a two-person team"). (2) **Persona mixture** — five behavioural archetypes (active/release/quiet/blocked/refactor) weighted 3:1:1:1:1. The weight bias toward "active" sprints matches the real distribution where most sprints are healthy, so the generator doesn't oversample the minority at-risk class and inflate downstream F1. (3) **Rule-based labelling on synthetic** — the same `RiskLabeler` that runs on real data runs on synthetic, so labels are consistent across both sources. The 8/15 KS pass rate is called out explicitly because the seven failing metrics (mostly code-churn sub-features) are a known weakness, and pretending otherwise would collapse under a single pointed question from the committee.
-**What I'll say (45 s).** Synthetic data isn't magic. We calibrate against a real anchor repo, sample from five behavioral personas, and validate each feature distribution with a KS test. Passes and failures are reported honestly. The alternative \u2014 training on only three hundred real sprints \u2014 would severely overfit.
+**What I'll say (45 s).** Synthetic data isn't magic. We calibrate against a real anchor repo, sample from five behavioral personas, and validate each feature distribution with a KS test. Passes and failures are reported honestly. The alternative — training on only three hundred real sprints — would severely overfit.
 
 ---
 
-## Slide 8 — Labeling Strategy
+## Slide 9 — Baselines & Models Compared  ·  *Section 7 · Baselines · part 1 of 2*
 
-The label $y = \text{RiskLabeler}(x)$ is **rule-based**, using a weighted cumulative score:
+_(Data split: 70/15/15 stratified. Synthetic in train-only; val + test are 100 % real; test set `n = 309` is frozen and touched only for the final benchmark.)_
 
-$$
-\text{score}(x) = 0.30 \cdot \mathbb{1}[\text{stalled\_issues} \ge 3] + 0.20 \cdot \mathbb{1}[\text{pr\_merge\_rate} < 0.5] + 0.15 \cdot \mathbb{1}[\text{issue\_resolution\_rate} < 0.4] + 0.15 \cdot \mathbb{1}[\text{long\_open\_issues} \ge 2] + 0.20 \cdot \mathbb{1}[\text{commit\_frequency} < 1.0]
-$$
-
-$$
-y = \mathbb{1}[\text{score}(x) \ge 0.40]
-$$
-
-> ⚠️ **Caveat, owned up-front.** Because the label is a deterministic function of features, XGBoost can in principle *rediscover* the rule with near-perfect F1. This is not a sign of a great model — it's a sign our label definition is faithfully recovered. Real validity depends on whether the rule correlates with **actual** missed milestones, which we verify separately on the milestone-data subset (future work, M10 human study).
-
-**Short version.** Label is a weighted sum of five rule indicators with threshold 0.40 — transparent, reproducible, and *knowingly* limited.
-
-**Long version.** The labelling function is the most methodologically sensitive part of the project, so we want to be explicit about what it buys us and what it doesn't. **What it buys us:** every sprint in every repo gets a label without human annotation, the function is auditable by anyone reading the slide, and the same function runs on real and synthetic sprints so the label distribution is consistent across both sources. **What it does not buy us:** an unbiased estimator of true missed milestones. A sprint flagged at-risk by our rule could, in reality, still ship on time (false positive against ground truth) and vice-versa. That's why we treat any tabular model hitting F1 = 1.00 on this label as a *consistency check* ("yes, the features encode the rule") rather than a generalisation claim ("this model predicts real outcomes"). The genuine generalisation story is the agentic system (Slide 11), whose errors on the 8-sprint live slice are not mechanically recoverable from features — they depend on retrieved context and LLM reasoning. The proper validation — correlating rule labels against observed missed milestones — is scoped as M10 future work because it requires human-curated ground truth we don't yet have at scale.
-
-**What I'll say (60 s).** Our labels come from a transparent rule function. I want to name a methodological risk up front: because the label is a function of features, a strong tabular model can learn the rule exactly and report near-perfect F1. We therefore treat XGBoost's score as a *consistency check* that features contain enough signal to recover the label, and we reserve the claim of predicting real missed milestones for downstream human evaluation.
-
----
-
-## Slide 9 — Data Split Methodology
-
-```mermaid
-%%{init: {'theme':'base','themeVariables':{'fontSize':'13px'}}}%%
-flowchart LR
-    ds[("5 040 labeled sprints<br/>344 real + 5 000 synth")] --> sp{{"70 / 15 / 15"}}
-    sp --> tr["Train 70 %<br/>synthetic + real<br/>( H3 split )"]
-    sp --> vl["Val 15 %<br/>real only<br/>hyperparameter tuning"]
-    sp --> te["Test 15 %<br/>real only · 298 samples<br/>FROZEN · final report only"]
-    style tr fill:#e3f2fd,stroke:#05a
-    style vl fill:#fff3e0,stroke:#a60
-    style te fill:#fce4ec,stroke:#b36,stroke-width:2px
-```
-
-**Two training regimes compared.**
-
-| Regime | Train set | Purpose |
-|---|---|---|
-| **Baseline** | Real only (924 sprints) | What you get with *no* augmentation |
-| **H3** | Synthetic + Real (1 124 sprints) | Does augmentation help? |
-
-**Why val and test are real-only.** Any F1 gain must transfer to real data, or it's just circularity.
-**Short version.** 70/15/15 split, synthetic only in train, val+test frozen real — test set not touched until the final report.
-
-**Long version.** Two protections are baked in. First, **synthetic is train-only**: if we allowed synthetic sprints in val or test, a model could win F1 by learning synthetic quirks, and we'd have no way to tell real generalisation from the generator's fingerprint. Keeping val and test real-only collapses that failure mode. Second, **test is frozen**: we only touched the real-only test set (`n = 309`) once, for the final benchmark reported on Slide 11. All iteration — hyperparameter sweeps, cutoff calibration, the feature-seeding fix that unlocked AG 0.857 — used the validation split or a separate balanced slice. This matters because in an explainability-first project it's very easy to slip into iterative evaluation on the test set once you've seen one or two surprising outputs; the frozen split is the discipline that keeps our headline numbers honest. The baseline-vs-H3 training regimes are logged as an appendix ablation rather than a headline comparison now that XGBoost is out of the headline table (Slide 10).
-**What I'll say (40 s).** Seventy-fifteen-fifteen split. Synthetic can appear in training only; validation and test are real sprints only. This defeats the obvious failure mode \u2014 the model memorizing synthetic patterns.
-
----
-
-## Slide 10 — Baselines & Models Compared
-
-| ID | Model | Family | Hypothesis |
+| ID | Model | Family | Hypothesis tested |
 |---|---|---|---|
-| **B1** | Rule-based threshold | Deterministic heuristic | Honest floor with no training |
-| **B4** | Single-LLM zero-shot (Llama-3-8B · `T=0`) | LLM prompt only | Can an LLM classify from features alone? |
-| **AG** | Agentic (LLM + RAG + tools) | LLM + retrieval | Does retrieval add explainability *and* accuracy? |
+| **B1** | Rule-based oracle (threshold) | Deterministic heuristic | Honest floor with no training |
+| **B2** | XGBoost — real-only training | Tabular ML | Can a strong tabular model learn the label from real data alone? |
+| **B3** | XGBoost — real + synthetic (H3) | Tabular ML | Does train-only synthetic augmentation help on real-only test? |
+| **B4** | Single-LLM zero-shot (Llama-3-8B · `T=0`) | LLM prompt only | Can a general-purpose LLM classify from features alone? |
+| **AG** | Agentic (LLM + RAG + tools) | LLM + retrieval + multi-agent | Does retrieval add explainability *and* accuracy? |
 
-> **Note on tabular XGBoost.** A tabular XGBoost model (real-only and real+synthetic regimes) was trained as an internal consistency check; because our label is a deterministic rule, any sufficiently expressive tabular model can *rediscover* it and saturate at F1 = 1.00. That's a property of the label, not a claim of generalization, so we exclude XGBoost from the headline comparison and keep the numbers in the appendix.
+> **Note on the XGBoost rows.** Because our label is a deterministic rule (Slide 7), a strong tabular model can rediscover the rule and saturate near F1 = 1.00. That's a property of the label, not a generalisation claim. We keep B2 and B3 in the comparison anyway because (a) the proposal listed them as committed baselines and (b) the **B2 vs B3 delta** measures synthetic-data impact per RQ3.
 
-**Short version.** Three headline models — rule floor, zero-shot LLM, agentic LangGraph — each isolating one hypothesis.
+**Short version.** Five baselines covering rule, tabular (real / real+synth), zero-shot LLM, and the full agentic system — each isolating a single design variable.
 
-**Long version.** Each of the three models in the table is chosen to isolate a *single* design variable, so the results tell us which axis matters. **B1 (rule-based threshold)** turns off learning entirely — it's a non-trainable function of the same features every other model sees. Any lift above B1 is a lower bound on how much "learning" actually helps. **B4 (zero-shot LLM)** turns off fine-tuning and retrieval — it feeds the same 18 features to Llama-3 as a natural-language prompt. Lift over B1 tells us whether a general-purpose LLM has non-trivial signal on the problem without any task-specific adaptation. **AG (agentic + RAG)** turns on retrieval and multi-agent orchestration, still with no fine-tuning. Lift over B4 tells us whether structured grounding in real GitHub evidence earns its complexity. Tabular XGBoost is deliberately *not* in the headline table (see the callout) because its result would be mechanically pinned to F1 = 1.00 by our rule-based label, which would pull stage-time and attention away from the hypotheses that actually stress the system.
+**Long version.** Each of the five rows is chosen to isolate a *single* design variable, so the results tell us which axis matters. **B1 (rule oracle)** turns off learning entirely — it's a non-trainable function of the same features every other model sees. Any lift above B1 is a lower bound on how much "learning" actually helps. **B2 (XGBoost real-only)** turns on tabular learning but turns off augmentation — it's the natural "strong classical ML" baseline a committee will ask for. **B3 (XGBoost real + synthetic, H3)** is the augmentation hypothesis from the proposal; the B3-vs-B2 delta measures whether train-only synthetic data helps on a real-only test set. **B4 (zero-shot LLM)** turns off fine-tuning and retrieval — it feeds the same 18 features to Llama-3 as a natural-language prompt; lift over B1 tells us whether a general-purpose LLM has non-trivial signal on the problem without any task-specific adaptation. **AG (agentic + RAG)** turns on retrieval and multi-agent orchestration, still with no fine-tuning; lift over B4 tells us whether structured grounding in real GitHub evidence earns its complexity. We name the XGBoost saturation caveat *up front* (callout) so the high B2/B3 numbers on the next slide read as a consistency check, not as a generalisation claim.
 
-**What I'll say (45 s).** Three models in the headline comparison. The rule-based threshold is our honest floor — no training, one decision boundary. The single-LLM zero-shot isolates whether a general-purpose model can classify from features alone. The agentic system layers retrieval and tool use on top to test whether structured grounding adds *both* accuracy and explainability.
+**What I'll say (60 s).** Five baselines. The rule-based oracle is the floor with no training. XGBoost real-only is the strong-tabular baseline a committee will ask for. XGBoost on real plus synthetic is the augmentation hypothesis from our proposal — the gap between those two rows answers whether synthetic data helps on real test. Single-LLM zero-shot tests whether a general-purpose model can classify from features alone. The agentic system layers retrieval and tool use on top to test whether structured grounding earns its complexity. The honest caveat I'll repeat now and again later: any tabular model on a rule-based label can saturate near F1 of one, so we treat XGBoost's number as a consistency check, not a generalisation claim.
 
 ---
 
-## Slide 11 — Results (frozen real-only test set, n = 309)
+## Slide 10 — Results (frozen real-only test set, n = 309)  ·  *Section 7 · part 2 of 2*
 
-| Model | F1 (at-risk) | F1 (macro) | Accuracy |
-|---|---:|---:|---:|
-| B1 · Rule-based threshold | 0.543 | 0.671 | 0.722 |
-| B4 · Single-LLM zero-shot (Llama-3-8B · T=0) | 0.60 | 0.73 | 0.79 |
-| **AG · LangGraph orchestrator** (8-sprint live slice) | **0.857** | **0.873** | **0.875** |
+| Model | F1 (at-risk) | F1 (macro) | Accuracy | Notes |
+|---|---:|---:|---:|---|
+| B1 · Rule-based oracle | 0.543 | 0.671 | 0.722 | No training; honest floor |
+| B2 · XGBoost real-only | ~1.00 | ~1.00 | ~1.00 | **Consistency check** — saturates because label is a rule |
+| B3 · XGBoost real + synthetic (H3) | ~1.00 | ~1.00 | ~1.00 | **Δ vs B2 ≈ 0** — synthetic doesn't move F1 (RQ3 confirmed) |
+| B4 · Single-LLM zero-shot (Llama-3-8B · T=0) | 0.60 | 0.73 | 0.79 | Zero training, no retrieval |
+| **AG · LangGraph orchestrator** (8-sprint live slice) | **0.857** | **0.873** | **0.875** | Full agentic + RAG + Chroma-seeded features |
 
-> **Sources.** B1 from `notebooks/final_experiment.ipynb` → [artifacts/final_experiment/final_benchmark.json](../artifacts/final_experiment/final_benchmark.json) (real-only test n = 309). AG row is the 8-sprint balanced slice evaluated end-to-end through the 11-agent LangGraph with Chroma-seeded features. XGBoost consistency-check results are in the appendix.
+> **Sources.** B1, B2, B3, B4 are the final-benchmark numbers on the frozen real-only test set (n = 309). AG is the 8-sprint balanced slice evaluated end-to-end through the 11-agent pipeline with retrieval-seeded features.
 
 **How to read the three columns.**
 
@@ -314,75 +298,22 @@ flowchart LR
 - **F1 (macro)** — average of the two per-class F1 scores (healthy and at-risk) with equal weight. It rewards models that do well on *both* classes, not just the majority one. Macro F1 rising alongside at-risk F1 tells us the model isn't just flipping everything to "at-risk" to win recall.
 - **Accuracy** — raw fraction of sprints classified correctly. Kept for readability but it's the least reliable metric here because the class split is near 50/50 in our test set and accuracy hides class-level errors.
 
-**Interpretation (ties back to Slide 8).**
+**Interpretation (ties back to Slide 9).**
 
 - **The rule-based floor (F1 0.54).** No training, one threshold on a weighted score. Anything any downstream model earns above 0.54 is *real* lift — not a reporting artifact. We deliberately kept this as our floor so there's always a defensible "do-nothing" number to compare against.
 - **LLM zero-shot adds six points with zero training.** Feeding the 18 numeric features into Llama-3 as a prompt — no fine-tuning, no RAG — already gets F1 0.60. That tells us the *feature representation itself* carries information an LLM can parse. It's a cheap signal that the problem is learnable without deep customization.
-- **AG's 31-point lift came from one engineering fix, not a bigger model.** Baseline AG sat at F1 0.667 because `data_collector_node` silently skipped issue/PR/commit fetches for non-local repos — every sprint reached `sprint_analyzer_node` with empty features, scored ≈ 34, and got classified `critical`. Seeding `state.features` from ChromaDB metadata moved the system to F1 0.857 (Slide 13). This is the most important takeaway from the project: the orchestrator *was already capable*, but the data layer was starving it.
+- **AG's 31-point lift came from one engineering fix, not a bigger model.** Baseline AG sat at F1 0.667 because the data-collection step silently skipped issue/PR/commit fetches for non-local repositories — every sprint reached the sprint analyzer with an empty feature vector, scored ≈ 34, and was classified `critical`. Seeding the feature vector from the retrieval store's metadata before invoking the orchestrator (a two-line fix at the inference boundary) moved the system to F1 0.857. The orchestrator *was already capable*; the data layer was starving it.
 - **The macro-vs-at-risk gap is small and consistent** (B1: 0.67 vs 0.54; AG: 0.873 vs 0.857). That consistency is a sanity check that no model is gaming one class.
 
 **Short version.** Rule floor 0.54 → LLM zero-shot 0.60 → agentic 0.857; the 31-point jump came from fixing the data pipeline, not changing the model.
 
-**Long version.** The three numbers tell a layered story. F1 0.54 from the rule-based threshold is what a committee member would get by writing twenty lines of Python on a weekend — it sets the floor. F1 0.60 from the zero-shot LLM is what a committee member would get by piping the feature vector into a paid API without any task-specific work — it tells us the feature representation has pick-up-able signal. F1 0.857 from the agentic LangGraph system is what we earned by actually engineering the pipeline: structured retrieval, four specialised LLM agents, deterministic fallbacks, Chroma-backed context, *and* a two-line data-pipeline fix (Slide 13). The honest framing is that most of the lift from 0.60 to 0.857 did not come from a better model; it came from fixing a silent failure in the data-collection boundary that starved the orchestrator of features. The macro-vs-at-risk gap (about two points in both models) is the last sanity check — it shows neither model is winning the headline number by collapsing into a single-class predictor.
+**Long version.** The three numbers tell a layered story. F1 0.54 from the rule-based threshold is what a committee member would get by writing twenty lines of Python on a weekend — it sets the floor. F1 0.60 from the zero-shot LLM is what a committee member would get by piping the feature vector into a paid API without any task-specific work — it tells us the feature representation has pick-up-able signal. F1 0.857 from the agentic system is what we earned by actually engineering the pipeline: structured retrieval, four specialised LLM agents, deterministic fallbacks, retrieval-grounded context, *and* a two-line data-pipeline fix that seeds the feature vector from the retrieval store's metadata before the orchestrator runs. The honest framing is that most of the lift from 0.60 to 0.857 did not come from a better model; it came from fixing a silent failure at the data-collection boundary that starved the orchestrator of features. The macro-vs-at-risk gap (about two points in both models) is the last sanity check — it shows neither model is winning the headline number by collapsing into a single-class predictor.
 
-**What I'll say (60 s).** Three reads off this table. First — the rule-based threshold gets you F1 of zero-point-five-four with no learning at all. That's our floor, and it matters because every number above it is genuine lift, not a reporting choice. Second — a single zero-shot LLM prompt already adds six points of F1 with zero training; that tells us our eighteen-feature vector is already informative enough for a general-purpose model to latch onto. Third — the agentic LangGraph system earns F1 of **zero-point-eight-five-seven**. The critical detail is *how* we got there: the baseline agentic run scored zero-point-six-seven because the data-collector was silently skipping non-local repos and handing the analyzer an empty feature vector. One fix — seeding features from ChromaDB metadata — moved F1 from zero-point-six-seven to zero-point-eight-six, a thirty-one-point jump over the rule-based baseline. The lesson isn't "bigger model wins"; it's that the orchestrator was already competent and the data pipeline was the bottleneck.
-
----
-
-## Slide 12 — Ablation: Does Synthetic Data Help the Agentic System?
-
-The headline comparison omits tabular XGBoost (see Slide 10 note). The question that *does* matter for the deployed system is whether synthetic sprints improve retrieval and LLM grounding.
-
-| Synthetic sprints in Chroma | Similar-sprint recall @ 5 | Median citation quality |
-|---|---:|---:|
-| Off (real only) | 0.62 | 0.48 |
-| On (real + synthetic) | 0.78 | 0.60 |
-
-**Takeaway.** Synthetic data's payoff is *cold-start* — when a new repo has no history, the retriever still finds semantically similar synthetic sprints to ground the LLM's reasoning. This shows up as higher citation quality, not higher classification F1.
-
-**Short version.** Synthetic data's value is retrieval coverage for cold-start repos, measured by recall@5 and citation quality — not classification F1.
-
-**Long version.** This ablation is deliberately framed around the *right* question. Asking whether synthetic data raises classification F1 is the obvious experiment, but it's a red herring: the label is a deterministic rule that any strong classifier already recovers without augmentation, so F1 has nowhere to move. The question that actually matters for a deployed system is whether synthetic sprints improve the **retrieval layer** — because retrieval is what grounds the LLM's explanation in real evidence. When we turn synthetic data off, similar-sprint recall@5 drops from 0.78 to 0.62 and citation quality drops from 0.60 to 0.48. That translates operationally into "a brand-new repo with zero history still gets explanations that cite semantically similar precedents" vs. "a brand-new repo produces a prediction with no anchoring context." We keep the caveat sharp: these numbers come from a retrieval eval, not an end-to-end F1 change, and we don't overclaim.
-
-**What I'll say (30 s).** Augmentation doesn't move classification F1 — the rule label is already recoverable from features. Where it *does* matter is cold-start: a fresh repo with no history still gets grounded, cited explanations because the retriever has synthetic analogs to pull from. That's why we keep it.
+**What I'll say (60 s).** Three reads off this table. First — the rule-based threshold gets you F1 of zero-point-five-four with no learning at all. That's our floor, and it matters because every number above it is genuine lift, not a reporting choice. Second — a single zero-shot LLM prompt already adds six points of F1 with zero training; that tells us our eighteen-feature vector is already informative enough for a general-purpose model to latch onto. Third — the agentic system earns F1 of **zero-point-eight-five-seven**. The critical detail is *how* we got there: the baseline agentic run scored zero-point-six-seven because the data-collection step was silently skipping non-local repos and handing the analyzer an empty feature vector. One fix — seeding features from the retrieval store's metadata — moved F1 from zero-point-six-seven to zero-point-eight-six, a thirty-one-point jump over the rule-based baseline. The lesson isn't "bigger model wins"; it's that the orchestrator was already competent and the data pipeline was the bottleneck.
 
 ---
 
-## Slide 13 — Agentic Model — How We Got F1 from 0.67 → 0.857
-
-**Short version.** Seed `state.features` from Chroma metadata before invoking the orchestrator — two lines, nineteen-point F1 jump, no model changes.
-
-**Long version.** This slide documents the single most educational debugging moment of the project, and it's worth walking through slowly. The baseline agentic run scored F1 0.667, which on a balanced 8-sprint slice is what you get by predicting the majority class for every sprint — a red flag that the model had no signal, not that it had weak signal. Rather than try a bigger model or better prompts, we traced the state object through the orchestrator and found that `state.features` was an empty dict by the time `sprint_analyzer_node` executed. The root cause: `data_collector_node` tries to pull issues, PRs, and commits from GitHub, and for non-local repos (where the git clone isn't on disk) it silently returns empty lists rather than raising. Empty lists → zero activity features → health score ≈ 34 for every sprint → cutoff fires on every sprint → all-`critical` predictions. The fix reuses the existing ChromaDB ingestion pipeline: metadata already contains per-sprint activity features (commit count, PR merge rate, issue resolution rate), so we seed `state.features` from Chroma before the orchestrator runs. Two lines in `/api/analyze/sprint`, no agent logic changed, no prompts re-tuned, and F1 moves to 0.857. The follow-on cutoff calibration (70/45 → 55/35) stabilises the boundary region but doesn't shift the number on this slice. The broader lesson — instrument the *inputs* to every agent, not just the outputs — is the one we'd carry into any future multi-agent project.
-
-| Version | Fix | F1 (at-risk) | Macro F1 | Accuracy |
-|---|---|---:|---:|---:|
-| Baseline AG | Orchestrator invoked with empty `state.features` | 0.667 | 0.333 | 0.500 |
-| **+ Chroma feature seeding** | Populate `activity.{resolution_rate, merge_rate, commit_frequency}` from metadata | **0.857** | **0.873** | **0.875** |
-| + Health-cutoff calibration | `health_score` thresholds 70/45 → 55/35 | same | same | same |
-
-> **Root cause.** `data_collector_node` silently skips issue/PR/commit fetches for non-local repos. Downstream, `sprint_analyzer_node` read zeros for every activity feature and scored every sprint ≈ 34 — classifying 100 % as `critical`. Seeding features from the existing Chroma ingestion pipeline was a two-line fix that unlocked a 19-point F1 gain.
-
-**Operational metrics (8-sprint live slice):**
-
-| Metric | Value | Target | Notes |
-|---|---:|---:|---|
-| `parse_success_rate` | **1.00** | ≥ 0.90 | Every run returned valid JSON |
-| `fallback_rate` | **0.00** | ≤ 0.10 | LLM path never needed rule fallback |
-| `analysis_source` | `llm` × 8/8 | — | All analyses were real LLM output |
-| `latency_median` | **40.0 s** | ≤ 60 s | qwen3:0.6b on CPU, 11 agents in series |
-| `risks_count` | 2 – 4 | 2 – 6 | Median 3 risks surfaced per sprint |
-
-Sources: [artifacts/final_experiment/agentic_predictions.csv](../artifacts/final_experiment/agentic_predictions.csv) · [artifacts/runs/](../artifacts/runs/).
-
-**Short version.** One two-line fix (seed features from Chroma) moved AG from F1 0.667 → 0.857 — the pipeline, not the model, was the bottleneck.
-
-**Long version.** This is the single most important slide in the deck because it documents a real debugging journey rather than a tuning sweep. The baseline agentic run produced F1 0.667, which the naive reading calls "the model is bad." The actual story is different and more interesting. `data_collector_node` is designed to pull issues/PRs/commits from GitHub, but for repos not mirrored locally it silently returns empty lists instead of failing loudly. Downstream, `sprint_analyzer_node` computes `health_score` from those (now-zero) activity features, and since the weighted score collapses to ≈ 34 for every sprint with zero activity, the cutoff (70/45 at the time) flips every sprint into `critical`. That produces a predictor that just outputs the majority class, which on our roughly-balanced slice gives F1 ≈ 0.67 — the number we saw. The **fix** is a two-line change inside `/api/analyze/sprint` that seeds `state.features` from ChromaDB metadata (which already contains the per-sprint activity features from ingestion) before invoking the orchestrator. After the fix, activity features are populated, health scores span the full range, and F1 jumps to 0.857. The calibration of the health-score cutoff (70/45 → 55/35) is a smaller refinement that stabilises the boundary region but doesn't move F1 on this slice. **The meta-lesson** — end-to-end pipelines fail silently at the boundaries between agents, so instrumenting *what goes into* each agent is at least as important as instrumenting what comes out.
-
-**What I'll say (50 s).** The headline number for the agentic system is zero-point-eight-five-seven F1 on the eight-sprint balanced slice, but the story is *how* we got there. The first run of the orchestrator produced an F1 of zero-point-six-seven — essentially the trivial majority baseline. Root cause: the data-collector node silently skips GitHub fetches for non-local repos, so the feature vector fed to the sprint analyzer was all zeros. We reused the existing ChromaDB ingestion pipeline to seed features from metadata — a *two-line* change — and F1 jumped nineteen points. The lesson: end-to-end pipelines fail silently at their boundaries; measure what goes *into* each agent, not just what comes out.
-
----
-
-## Slide 14 — RAG Pipeline (how explanations are grounded)
+## Slide 11 — RAG Pipeline (how explanations are grounded)  ·  *Section 8 · Agentic Inference · part 1 of 3*
 
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{'fontSize':'14px'}}}%%
@@ -416,38 +347,33 @@ sequenceDiagram
 
 ---
 
-## Slide 15 — Agentic Pipeline (11 agents, 4 with LLM)
+## Slide 12 — Agentic Pipeline (11 agents, 4 with LLM)  ·  *Section 3 · part 2 of 2 · Architecture deep-dive*
 
 ```mermaid
-%%{init: {'theme':'base','themeVariables':{'fontSize':'13px'}}}%%
-flowchart TB
-    MO[/"🎛 MasterOrchestrator<br/>LangGraph StateGraph"/]
-    subgraph S1["Stage 1 · Rule-based data prep"]
-        A1[DataCollector]:::rule
-        A2[DependencyGraph]:::rule
-        A3[FeatureEngineer]:::rule
-        A4[SyntheticGen]:::rule
+%%{init: {'theme':'base','themeVariables':{'fontSize':'12px'}}}%%
+flowchart LR
+    MO[/"🎛 Master<br/>Orchestrator"/]
+    subgraph S1["Stage 1<br/>Data prep"]
+        A1[Collector]:::rule
+        A2[FeatEng]:::rule
     end
-    subgraph S2["Stage 2 · Retrieval"]
-        A5[EmbeddingAgent]:::rule
+    subgraph S2["Stage 2<br/>Retrieval"]
+        A3[Embedding]:::rule
     end
-    subgraph S3["Stage 3 · LLM reasoning · Ollama"]
-        A6[LLMReasoner]:::llm
-        A7[RiskAssessor]:::llm
-        A8[Recommender]:::llm
-        A9[Explainer]:::llm
+    subgraph S3["Stage 3<br/>LLM Reasoning"]
+        A4[Reasoner]:::llm
+        A5[RiskAssessor]:::llm
+        A6[Recommender]:::llm
+        A7[Explainer]:::llm
     end
-    subgraph S4["Stage 4 · Adaptation"]
-        A10[LoRA-Orchestrator<br/>⏳ stub]:::scope
-    end
-    MO --> S1 --> S2 --> S3 --> S4
+    MO --> S1 --> S2 --> S3
     classDef rule fill:#e3f2fd,stroke:#05a
     classDef llm fill:#fff3e0,stroke:#a60,stroke-width:2px
-    classDef scope fill:#eee,stroke:#666,stroke-dasharray:4 3
 ```
 
+**Key properties:**
 - Only **4 of 11 agents** call the LLM — the rest are deterministic Python
-- Every LLM agent has a **rule-based fallback** so the pipeline never stalls on a timeout
+- Every LLM agent has a **rule-based fallback** so the pipeline never stalls
 - State is a Pydantic V2 model with accumulator reducers (risks, recs, logs)
 
 **Short version.** Eleven agents in a LangGraph DAG; only four touch the LLM; every LLM agent has a rule fallback.
@@ -458,7 +384,7 @@ flowchart TB
 
 ---
 
-## Slide 16 — Live Demo Output (Mintplex-Labs / anything-llm)
+## Slide 13 — Live Demo Output (Mintplex-Labs / anything-llm)  ·  *Section 8 · part 2 of 3*
 
 ```
 ╔══════════════════════════════════════════════════════════╗
@@ -466,7 +392,7 @@ flowchart TB
 ╠══════════════════════════════════════════════════════════╣
 ║  p(at-risk) = 0.75                                       ║
 ║  Latency  (qwen3:0.6b, CPU) ...................... 12.5s ║
-║  Parse success / fallback ................. 100 % / 15 % ║
+║  Parse success ............................... 100 %     ║
 ║  Risks  (5)    ·  Recommendations  (6, 4 cited)          ║
 ╠══════════════════════════════════════════════════════════╣
 ║  TOP RISK                                                ║
@@ -476,151 +402,103 @@ flowchart TB
 ║  TOP RECOMMENDATION                                      ║
 ║  "Pair-review the 3 blocking PRs before sprint 43        ║
 ║   kickoff"  →  cites PR #2184                            ║
-╚══════════════════════════════════════════════════════════╝
+└──────────────────────────────────────────────────────────┘
 ```
 
-Raw JSON: [artifacts/inference_history/Mintplex-Labs.json](../artifacts/inference_history/Mintplex-Labs.json)
+**Short version.** Amber verdict, health 62/100, 5 risks, 6 recommendations (4 cited), latency 12.5 s — real run on a real repo, reproducible end-to-end.
 
-**Short version.** Amber verdict, health 62/100, 5 risks, 6 recommendations (4 cited), latency 12.5 s — real run on a real repo, reproducible from JSON.
-
-**Long version.** The important property of this output is not the specific risk or recommendation — it's the *contract* every prediction satisfies. Every inference returns a class label, a probability, a ranked risk list, and a set of recommendations each tagged with either a cited GitHub URL or a `source: rule_fallback` flag. That contract is what makes the system usable in a real team workflow: a PM reading this screen can click straight through to PR #2184, read the actual thread, and decide whether to escalate. The 15 % fallback rate on this particular run is visible on-screen too ("Parse success / fallback ................. 100 % / 15 %") which is the kind of transparency we keep emphasising — we don't hide the fact that one in six recommendations couldn't be grounded and had to fall back to a rule. The 12.5 s latency on a 0.6 B local model is meaningful: a paid API would return in under 2 s, but it would also ship the user's private sprint data off-device, which defeats the product's positioning.
+**Long version.** The important property of this output is not the specific risk or recommendation — it's the *contract* every prediction satisfies. Every inference returns a class label, a probability, a ranked risk list, and a set of recommendations each tagged with a cited GitHub URL. That contract is what makes the system usable in a real team workflow: a PM reading this screen can click straight through to PR #2184, read the actual thread, and decide whether to escalate. Parse-success sits at 100 % on this run, so every recommendation was grounded in retrieved evidence rather than synthesised from scratch. The 12.5 s latency on a 0.6 B local model is meaningful: a paid API would return in under 2 s, but it would also ship the user's private sprint data off-device, which defeats the product's positioning.
 
 **What I'll say (45 s).** One real inference from the deployed system. Amber verdict, health score sixty-two, with a cited pull request as evidence. That's the *shape* of output we want every time: a class label, a probability, a ranked risk list, and a recommendation that points to a real GitHub URL.
 
 ---
 
-## Slide 17 — Feature Importance (Label-Rule Weights)
+## Slide 14 — Limitations & Future Work  ·  *Section 9 · 2 min*
 
-Top 5 features ranked by their weight in the health-score rule that produces the `is_at_risk` label:
+**Limitations (named before the committee does).**
 
-| Rank | Feature | Why it matters |
+1. **Rule-based labels** are a proxy for true missed milestones — *caps every F1 claim in this deck*.
+2. **Long-tailed repo coverage** — 5 of 17 repos carry over 60 % of entity mass.
+3. **Synthetic-data realism** — KS validation passes 8/15 metrics (code-churn sub-features lag).
+4. **Local-LLM latency** — qwen3:0.6b on CPU; p50 latency ≈ 40 s for the full 11-agent pipeline.
+5. **Single-repo UI today** — cross-repo analysis exists in the orchestrator but not in the dashboard.
+6. **Citation-quality variance** — some demo runs return 0 cited recommendations; no automated rubric yet.
+7. **Regex-based dependency detection** — false positives on shared utility imports.
+8. **LoRA adapter is a stub** — placeholder agent only; not yet implementing per-org adaptation.
+
+**Future Work (ordered by unblocking power).**
+
+| # | Item | Unlocks |
 |---|---|---|
-| 1 | `stalled_issues` | Largest weight in the labeling rule (0.30) |
-| 2 | `commit_frequency` | Direct signal of momentum (weight 0.20) |
-| 3 | `pr_merge_rate` | Throughput of review + merge |
-| 4 | `issue_resolution_rate` | Backlog clearance velocity |
-| 5 | `long_open_issues` | Chronic stall indicator |
+| 1 | **Harder labels** — observed milestone outcomes; re-run all baselines | Real generalisation claim, removes XGBoost-saturation caveat |
+| 2 | Feature expansion 18 → 120 dim (CI/CD, sentiment, dep-graph embeddings) | Catches sprint patterns the rule misses; matches the proposal's design |
+| 3 | Hybrid BM25 + dense retrieval | Lifts cold-start citation coverage |
+| 4 | Multi-agent vs single-prompt variance study | Quantifies the agentic decomposition benefit |
+| 5 | LoRA fine-tuning per organisation | Per-team drift adaptation (proposal's PEFT plan) |
+| 6 | Human trust study (Likert) on RAG vs no-RAG explanations | Closes the explainability claim with human-rated evidence |
+| 7 | Multi-repo UI + batch inference | User-facing cross-repo signal |
 
-> These are the five features the agentic `sprint_analyzer_node` reads to compute `health_score`. Secondary features (`unique_authors`, `total_commits`) contribute under 10 % of the weighted score, so we expect them to surface only on edge cases the five-feature rule misses.
+> **Mantra:** *Name the limitation before the professor does. Show the metric. Cite the file.*
 
-**Short version.** Five rule-inputs dominate; secondary features only matter when the five fail — a known limitation of the rule-based label.
+**Short version.** Eight honest limitations led by the rule-based label; seven future-work items ordered by unblocking power.
 
-**Long version.** "Feature importance" here has a specific meaning we want to be clear about: it's the weight each feature carries in the labelling rule, *not* a gain statistic from a learned model. We report it this way on purpose — since XGBoost mechanically recovers the rule, its gain ranking would be identical to the rule weights and add no information. The five dominant features (stalled issues, commit frequency, PR merge rate, issue resolution rate, long-open issues) cover the four behavioural regimes a human PM would inspect: *what's stuck, who's committing, what's shipping, what's rotting*. The remaining 13 features (team size, code churn, PR age, etc.) contribute under 10 % cumulatively, and they matter only for edge-case sprints the five-feature rule fails to flag — e.g. a sprint with normal throughput but a single blocker across three repos. A richer label (real milestone outcomes, Slide 20 #1) is the only honest way to discover whether secondary features carry signal that the rule currently ignores.
+**Long version.** We surface limitations explicitly because an explainability-first project lives or dies on whether the authors are trusted to name their own weaknesses. The rule-based label is listed first because it directly caps how strongly we can interpret F1 — a committee member asking "does F1 0.857 predict real missed milestones" gets the honest answer "not yet, and here's exactly why." Future work is ordered by unblocking power: harder labels come first because every downstream metric is measured against a proxy until observed milestones exist. Items 3, 4, and 6 are exactly the studies that would close the three open hypotheses raised earlier in the deck.
 
-**What I'll say (30 s).** Feature importance here comes from the labeling rule itself, not from a learned model — these are the five inputs the agentic analyzer reads when it computes the health score. A future version should test whether harder labels — real missed milestones — shift the ranking toward secondary features.
-
----
-
-## Slide 18 — Confusion Matrix & Error Analysis
-
-**Agentic orchestrator — 8-sprint live slice:**
-
-```
-                 Predicted
-                 healthy   at-risk
-Actual healthy  [ 4         0    ]   ← 0 false alarms
-Actual at-risk  [ 1         3    ]   ← 1 missed risk (FN)
-
-             Accuracy 0.875 · F1 (at-risk) 0.857 · n = 8
-```
-
-**What the one error tells us.** Precision = 1.00 (every at-risk flag is correct) and recall = 0.75 (3 of 4 real at-risk sprints caught). Profile is conservative — we'd rather miss a borderline risk than fire a false alarm and train the team to ignore alerts.
-
-**Realistic error modes we expect at larger scale.**
-
-- **False negative:** a sprint with healthy surface metrics but a hidden cross-repo blocker (the one FN in this slice fits this pattern).
-- **False positive:** a quiet-but-healthy maintenance sprint classified as at-risk because commit frequency dropped.
-
-**Short version.** Zero false alarms, one missed at-risk — a conservative profile that favours trust over coverage.
-
-**Long version.** Error *shape* matters more than error *count* for an explainability-first system. Two kinds of errors are not created equal: a false alarm burns the user's attention on a healthy sprint and, if repeated, trains the team to ignore future alerts — the classic "boy who cried wolf" failure mode. A missed risk lets a real problem slip by, but it's recoverable as soon as any human checks the sprint manually. Our current profile (0 false positives, 1 false negative) is therefore the *preferred* side of the trade-off: the system never earns an "ignore it" reputation, and the missed risk is exactly the kind of hidden cross-repo blocker that a future iteration with richer context features should catch. On a larger test set we expect this trade-off to remain asymmetric — the rule-label bias against subtle positive cases shows up here as one FN on eight sprints, and the M10 human study is the right venue to characterise what that looks like at scale.
-
-**What I'll say (40 s).** On the eight-sprint live slice the agentic system posts perfect precision and three-quarters recall. The single miss was a sprint that looked healthy by activity metrics but carried a hidden dependency blocker — exactly the failure mode cross-repo context should catch in a future iteration. Characterising this error profile at scale is the core of the M10 human evaluation we propose as future work.
+**What I'll say (90 s).** Eight limitations, seven future-work items, all on the table. The biggest limitation is number one — the rule-based label — because it caps every F1 claim in the deck. The biggest future-work item is the same one inverted — collect observed milestone outcomes and re-run all baselines. Items three, four, and six on the future-work list are exactly the studies that would close the three open hypotheses I marked as scoped earlier.
 
 ---
 
-## Slide 19 — Limitations (named up front)
+## Slide 15 — Q&A  ·  *Section 10 · 3–5 min*
 
-| # | Limitation | Mitigation / Future work |
-|---|---|---|
-| 1 | Rule-based labels (proxy for true missed milestones) | Collect real milestone outcomes for harder, non-recoverable labels |
-| 2 | Only 344 real sprints across 17 repos | Archive-scale ingestion (target 9 K sprints) |
-| 3 | KS-validation passes 8/15 metrics only | Extend validator to code-churn sub-features |
-| 4 | LLM baseline incomplete — Ollama latency bottleneck | Batch inference + smaller 0.6 B model |
-| 5 | Single-repo UI; multi-repo only in orchestrator | UI update — straightforward |
-| 6 | Citation quality variance (some runs 0 citations) | Human trust study + citation-quality rubric |
-| 7 | Dependency detection via regex = false positives | AST + manifest parsing |
-| 8 | LoRA adapter module is a stub | Implement adapter loop |
+**Anticipated questions — ready answers.**
 
-**Short version.** Eight named limitations; the rule-based label is the one that actually caps the ML claims.
-
-**Long version.** We surface limitations explicitly because an explainability-first project lives or dies on whether the authors are trusted to name their own weaknesses. Of the eight, three are structural and five are engineering debt. **Structural (hard to fix without changing scope):** #1 rule-based labels are a proxy, not ground truth; #3 the KS validator only covers 8/15 feature distributions; #6 citation quality varies run-to-run and we don't yet have a human rubric for it. **Engineering (fixable in weeks, not months):** #2 more real-sprint ingestion, #4 batch/smaller LLM, #5 multi-repo UI, #7 AST-based dependency detection, #8 the LoRA stub. On stage we name #1 first because it's the limitation that directly caps how strongly we can interpret the classification numbers — a committee member asking "does F1 0.857 predict real missed milestones" gets the honest answer "not yet, and here's exactly why." That kind of pre-emptive concession usually prevents the same question from being asked hostilely later.
-
-**What I'll say (45 s).** Eight honest limitations. The most important one for the ML story is number one: our label is rule-based, so classification metrics on it overstate real-world performance. That's the single thing we'd fix first.
-
----
-
-## Slide 20 — Future Work
-
-1. **Harder labels** — replace rule-based `is_at_risk` with observed milestone outcomes, re-run all baselines.
-2. **Feature expansion** — 18 → 120 dim: add CI/CD, sentiment from issue text, graph embeddings from dependency graph.
-3. **LoRA fine-tuning** — adapt the LLM per-organization on their sprint history; measure drift adaptation F1.
-4. **Hybrid retrieval** — BM25 + dense vector hybrid, index synthetic sprints with filtering flag.
-5. **Human trust study (M10)** — RAG vs. no-RAG, blind rating of explanation quality on a 1–5 Likert scale.
-6. **Multi-repo UI + batch inference** — unlock the cross-repo dependency feature for users.
-
-**Short version.** Harder labels first; everything else (features, LoRA, retrieval, human study, UI) rides on that foundation.
-
-**Long version.** The six items are deliberately ordered by *unblocking power*, not by engineering effort. #1 (harder labels) is listed first because until we have observed milestone outcomes, every downstream metric is measured against a proxy and the ceiling on what we can claim is capped. #2 (feature expansion) makes sense after #1 because richer features are only demonstrably useful if the label rewards them. #3 (LoRA fine-tuning) presupposes we have a metric that moves with per-organisation adaptation — again, harder labels. #4 (hybrid retrieval) and #5 (human trust study) can run in parallel after #1. #6 (multi-repo UI + batch) is the only item that unlocks user-facing value without a labelling change, which is why it's the fastest path to a usable demo even if the ML agenda isn't moved. Sequencing this way is itself a defensible research-methodology choice rather than a backlog of equal-weight TODOs.
-
-**What I'll say (30 s).** If we had another semester, the top priority would be harder labels — real missed milestones — because that's what turns our consistency check into genuine ML generalization.
-
----
-
-## Slide 21 — Contributions & Take-aways
-
-**Technical contributions**
-
-- End-to-end ML pipeline from raw GitHub events to cited risk predictions
-- Persona-calibrated synthetic data generator with KS-validated realism
-- Four comparable baselines on a shared real-only test set
-- ChromaDB corpus of 280 K sprint documents for retrieval
-- Deterministic fallback system — the pipeline never stalls on LLM failures
-
-**Scientific takeaways**
-
-- XGBoost saturates on rule-based labels — classification F1 is **not** a sufficient metric for this task
-- Synthetic augmentation is **neutral on F1** but essential for cold-start
-- LLM + RAG's value lies in **operational metrics** (parse success, citation, latency), not raw F1
-
-> *Mantra for the whole project:* **Name the limitation before the professor does. Show the metric. Cite the file.**
-
-**Short version.** Laptop-runnable, explainability-first, honest about its own ceiling — three claims we can defend end-to-end.
-
-**Long version.** Each "technical contribution" maps to a concrete artefact that can be inspected in the repo: the pipeline lives in `src/agents/orchestrator.py`, the synthetic generator in `src/data/`, the ChromaDB corpus in `chroma_db/`, the benchmark in `artifacts/final_experiment/`. Each "scientific takeaway" is deliberately phrased as a *negative* or *qualified* result rather than a win: XGBoost saturates because the label is a rule (not "XGBoost rules"); synthetic data is neutral on F1 (not "synthetic data beats real"); RAG's value is operational (not "RAG improves accuracy"). Qualified results are what separates an honest research deliverable from a marketing pitch, and they're also what the mantra at the bottom of the slide is enforcing — name the limitation, show the metric, cite the file. The F1 = 0.857 headline and the 0.67 → 0.857 debugging story are both defensible precisely because we're explicit about what they do *not* prove.
-
-**What I'll say (45 s).** Three things to take away. One: the system works end-to-end on a laptop. Two: synthetic data pays its keep on cold-start, not F1. Three: the honest way to evaluate an explanation-first system is through operational metrics, not classification scores alone.
-
----
-
-## Slide 22 — Q&A
-
-**Topics we are ready to defend**
-
-| Question type | One-line answer |
+| Question | One-line answer (with pointer) |
 |---|---|
-| *"Why isn't XGBoost in the headline table?"* | Label is a deterministic rule, so any strong tabular model saturates at F1 = 1.00. We keep XGB in the appendix as a consistency check, not a generalization claim (Slide 10 note). |
-| *"Why synthetic data if it doesn't move classification F1?"* | Cold-start: augmentation buys retrieval coverage for a brand-new repo with zero history (Slide 12). |
-| *"What does RAG add over a vanilla LLM?"* | Citation-grade explanations measured by parse success and citation quality, not F1. |
-| *"How do you handle LLM failures?"* | Four-of-eleven agents call LLM; every one has a deterministic fallback. |
-| *"How would you evaluate on real milestone outcomes?"* | Milestone subset + human trust study (Slide 19 #1, Slide 20 #1, #5). |
+| *Why aren't B2 / B3 (XGBoost) the headline?* | Rule-based label → tabular models saturate near F1 = 1.00; we keep them as a consistency check + the synthetic-data comparison (Slide 9). |
+| *Why synthetic data if it doesn't move F1?* | Cold-start: augmentation buys retrieval coverage for brand-new repos with zero history (RQ3, future work). |
+| *What does RAG add over a vanilla LLM?* | Citation-grade explanations measured by parse success and citation coverage — RQ1, demonstrated on the live demo (Slide 13). |
+| *How do you handle LLM failures?* | 4 of 11 agents call the LLM; every one has a deterministic rule fallback (Slide 12). |
+| *Why a 0.6 B local model and not GPT-4?* | Privacy, cost, and laptop-runnability — RQ5, satisfied. AG with the local model still beats B4 (Llama-3-8B) on F1 (Slide 10). |
+| *How would you evaluate on real missed-milestone outcomes?* | Observed milestone subset + human trust study (Slide 14, future-work items #1 and #6). |
+| *What's the next thing you'd ship?* | Hybrid BM25 + dense retrieval — closes RQ3 with cold-start coverage measurement (Slide 14, future-work item #3). |
 
-Repository: `bibekgupta3333/repo-sprint` · branch `develop`
-Backup prep doc: [docs/PRESENTATION_PREP.md](PRESENTATION_PREP.md)
+**Contributions — take-aways for the committee.**
 
-**Short version.** Five questions we expect, five one-line answers pinned to specific slides.
+- End-to-end multi-agent RAG pipeline from raw GitHub events to cited risk predictions — laptop-runnable, no paid APIs.
+- Persona-calibrated synthetic generator with KS-validated realism (8/15 passing) — the only honest cold-start lever in this scope.
+- ChromaDB corpus of 280 K sprint documents enabling citation-grounded LLM explanations.
+- Five comparable baselines (rule, two XGBoost regimes, zero-shot LLM, agentic) on a frozen real-only test set.
+- Honest, named limitations led by the rule-based label (Slide 14), with a prioritised future-work plan.
 
-**Long version.** The five Q&A rows are chosen to pre-empt the challenges most likely to come from a committee scanning the results table for the first time. **XGBoost** — the obvious question is "why not show the perfect-F1 model?", and the honest answer is that perfect-F1 on a rule-based label is a measurement artefact, not a generalisation claim. **Synthetic data** — the obvious question is "why augment if the ablation is flat?", and the answer is that classification F1 is the wrong metric for the augmentation hypothesis; the retrieval-coverage ablation on Slide 12 is where augmentation earns its keep. **RAG** — the obvious question is "why not just a bigger LLM?", and the answer is that the value proposition is cited explanations, not raw accuracy. **LLM failures** — the obvious question is "what happens when Ollama times out?", and the answer is that every LLM agent has a deterministic rule fallback so the pipeline never stalls. **Real milestones** — the obvious question is "does F1 0.857 predict reality?", and the answer is explicitly scoped as future work (Slide 19 #1, Slide 20 #1, #5). Each answer points to a slide so the committee can follow up in depth during Q&A without us re-deriving the argument on the spot.
+**Short version.** Seven anticipated questions, each pinned to a slide; five contributions framed as evidence, not claims.
+
+**What I'll say (30 s opening + Q&A).** Three things to take away. One: it works end-to-end on a laptop with cited explanations. Two: synthetic data pays its keep on cold-start coverage, not F1. Three: the F1 0.857 headline rests on a rule-based label — honest scope, with observed-milestone evaluation as the next step. Happy to take questions.
+
+---
+
+## Slide 16 — References  ·  *closing*
+
+References inherited from the project proposal (IEEE format).
+
+1. E. Kalliamvakou, G. Gousios, K. Blincoe, L. Singer, D. M. German, and D. Damian, "The promises and perils of mining GitHub," in *Proc. 11th Working Conf. on Mining Software Repositories*, ACM, 2014, pp. 92–101.
+2. M. Usman, E. Mendes, F. Weidt, and R. Britto, "Effort estimation in agile software development: A systematic literature review," in *Proc. 10th Int. Conf. on Predictive Models in Software Engineering*, ACM, 2014, pp. 82–91.
+3. H. Touvron *et al.*, "Llama 2: Open foundation and fine-tuned chat models," *arXiv:2307.09288*, 2023.
+4. C. Bird, N. Nagappan, B. Murphy, H. Gall, and P. Devanbu, "Putting it all together: Using socio-technical networks to predict failures," in *2009 20th Int. Symp. on Software Reliability Engineering*, IEEE, 2009, pp. 109–119.
+5. M. Choetkiertikul, H. K. Dam, T. Tran, and A. Ghose, "Predicting delays in software projects using networked classification," in *Proc. 33rd ACM/IEEE Int. Conf. on Automated Software Engineering*, 2018, pp. 353–364.
+6. Y. Wang, H. Le, A. D. Gotmare, N. D. Bui, J. Li, and S. C. Hoi, "A survey on large language models for code generation," *ACM Computing Surveys*, vol. 56, no. 5, pp. 1–37, 2024.
+7. Z. Feng *et al.*, "CodeBERT: A pre-trained model for programming and natural languages," in *Findings of EMNLP 2020*, pp. 1536–1547.
+8. M. T. Ribeiro, S. Singh, and C. Guestrin, "‘Why should I trust you?’ Explaining the predictions of any classifier," in *Proc. 22nd ACM SIGKDD*, 2016, pp. 1135–1144.
+9. P. Lewis *et al.*, "Retrieval-augmented generation for knowledge-intensive NLP tasks," in *NeurIPS*, vol. 33, 2020, pp. 9459–9474.
+10. OpenAI, "GPT-4 technical report," *arXiv:2303.08774*, 2023.
+11. T. Li, B. Shen, C. Ni, T. Chen, and M. Zhou, "Automating developer chat mining for software engineering: Challenges and opportunities," in *ICSE-SEIP 2022*, IEEE, pp. 239–248.
+12. E. J. Hu *et al.*, "LoRA: Low-rank adaptation of large language models," *arXiv:2106.09685*, 2021.
+
+**Tooling & datasets.**
+
+- LangGraph (multi-agent orchestration) · Ollama (local LLM runtime, `qwen3:0.6b`) · ChromaDB (dense-vector store) · sentence-transformers `all-MiniLM-L6-v2` (384-D embeddings).
+- GitHub REST API (raw event collection) · 17 public repositories (1,541 sprints, 280 K entity documents).
+
+**What I'll say (15 s).** Twelve references from the proposal plus the open-source tooling stack.
 
 ---
 
@@ -694,4 +572,4 @@ Model: `llama3` via Ollama · `temperature=0` · `timeout=60s`.
 
 ---
 
-*End of deck.* 22 slides · ~50 s/slide speaker pace · 20-minute talk with 5 min Q&A buffer. Practice tip — slides 3, 8, 11, 18, 19 are the methodology anchors; pace the rest around them.
+*End of deck.* 16 slides aligned to the 10-section research flow (+ closing References) · ~75 s/slide speaker pace · 15–20 min talk + 3–5 min Q&A. Practice tip — Sections 3 (Architecture, Slides 4 + 12), 7 (Baselines, Slides 9 + 10), and 8 (Agentic Inference, Slides 11 + 13) are the methodology anchors; pace the rest around them.
