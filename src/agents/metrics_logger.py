@@ -76,16 +76,69 @@ def build_run_metrics(state: Any, started_at: float, finished_at: float) -> dict
         else "unknown"
     )
     tracker = getattr(state, "lora_performance_tracker", {}) or {}
-    f1_score = None
+    tracker_f1 = None
     if repo_id in tracker:
-        f1_score = tracker[repo_id].get("current_f1")
+        tracker_f1 = tracker[repo_id].get("current_f1")
     elif getattr(state, "lora_metrics", None):
-        f1_score = state.lora_metrics.get("f1_after")
+        tracker_f1 = state.lora_metrics.get("f1_after")
+
+    # Per-sprint F1 is only meaningful when the POSTed payload carries real
+    # delivery signals (issues, PRs, commits).  If those are missing we
+    # return None + an explicit warning rather than a synthetic number, so
+    # the UI can flag that the metric is not applicable instead of showing
+    # a misleading score.
+    f1_score: float | None = None
+    f1_method: str = "unavailable"
+    f1_warnings: list[str] = []
+    try:
+        feats = getattr(state, "features", {}) or {}
+        activity = feats.get("activity", {}) or {}
+        precision = float(activity.get("pr_merge_rate", 0.0) or 0.0)
+        recall    = float(activity.get("issue_resolution_rate", 0.0) or 0.0)
+
+        missing = []
+        if "pr_merge_rate" not in activity:
+            missing.append("pull_requests")
+        if "issue_resolution_rate" not in activity:
+            missing.append("issues")
+        if "commit_frequency" not in activity:
+            missing.append("commits")
+
+        if (precision + recall) > 0:
+            sprint_f1 = 2 * precision * recall / (precision + recall)
+            f1_score = round(sprint_f1, 4)
+            f1_method = "per_sprint_delivery_f1"
+        elif not activity:
+            f1_warnings.append(
+                "F1 is not computable: the request did not include "
+                "issues / pull_requests / commits. Use JSON Input mode "
+                "with a sprint payload to get a real per-sprint F1."
+            )
+        else:
+            f1_warnings.append(
+                "F1 is 0 because this sprint has no closed issues and "
+                "no merged pull requests yet. It will update once "
+                "delivery activity is recorded."
+            )
+            f1_score = 0.0
+            f1_method = "per_sprint_delivery_f1"
+
+        if missing and activity:
+            f1_warnings.append(
+                "Missing signals in payload: " + ", ".join(missing)
+                + ". F1 reflects only the fields that were provided."
+            )
+    except Exception as exc:
+        f1_warnings.append(f"F1 computation failed: {exc!s}")
+        f1_score = None
+        f1_method = "error"
 
     return {
         "timestamp": datetime.now().isoformat(),
         "latency_seconds": round(float(finished_at - started_at), 4),
         "f1_score": f1_score,
+        "f1_method": f1_method,
+        "f1_warnings": f1_warnings,
         "parse_success_rate": parse_success_rate,
         "fallback_rate": fallback_rate,
         "citation_quality": {
